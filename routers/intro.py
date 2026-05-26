@@ -595,13 +595,21 @@ def run_intro_job(
     sa_info = None
     brand_profile = {}
     try:
-        res = sb.table("user_settings").select("gsc_service_account, brand_profile").eq("user_id", user.id).execute()
-        if res.data:
-            if request.settings.use_gsc:
-                sa_info = res.data[0].get("gsc_service_account")
-            brand_profile = res.data[0].get("brand_profile") or {}
+        res = sb.table("user_settings").select("gsc_service_account").eq("user_id", user.id).execute()
+        if res.data and request.settings.use_gsc:
+            sa_info = res.data[0].get("gsc_service_account")
     except Exception:
         pass
+
+    # Fetch brand profile by ID if provided
+    brand_profile_id = request.settings.model_dump().get("brand_profile_id")
+    if brand_profile_id:
+        try:
+            bp_res = sb.table("brand_profiles").select("data").eq("id", brand_profile_id).eq("user_id", user.id).execute()
+            if bp_res.data:
+                brand_profile = bp_res.data[0].get("data") or {}
+        except Exception:
+            pass
 
     job_data = {
         "user_id": user.id,

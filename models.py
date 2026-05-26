@@ -23,6 +23,7 @@ class JobSettings(BaseModel):
     max_supporting_keywords: int = 5
     brand_name: str = ""
     full_brand_name: str = ""
+    brand_profile_id: str = ""  # ID from brand_profiles table
     include_brand: bool = False
     forbidden_phrases: str = ""
     branded_terms_input: str = ""

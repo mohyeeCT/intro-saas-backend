@@ -176,3 +176,54 @@ def delete_template(template_id: str, user=Depends(get_current_user)):
     sb = get_supabase()
     sb.table("job_templates").delete().eq("id", template_id).eq("user_id", user.id).execute()
     return {"deleted": True}
+
+
+# ── Brand Profiles ─────────────────────────────────────────────────────────────
+
+class BrandProfileCreate(BaseModel):
+    name: str
+    data: dict = {}
+
+
+class BrandProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    data: Optional[dict] = None
+
+
+@router.get("/brand-profiles")
+def list_brand_profiles(user=Depends(get_current_user)):
+    sb = get_supabase()
+    res = sb.table("brand_profiles").select("*").eq("user_id", user.id).order("created_at", desc=False).execute()
+    return res.data or []
+
+
+@router.post("/brand-profiles")
+def create_brand_profile(body: BrandProfileCreate, user=Depends(get_current_user)):
+    sb = get_supabase()
+    res = sb.table("brand_profiles").insert({
+        "user_id": user.id,
+        "name": body.name,
+        "data": body.data,
+    }).execute()
+    if not res.data:
+        raise HTTPException(status_code=500, detail="Failed to create brand profile")
+    return res.data[0]
+
+
+@router.put("/brand-profiles/{profile_id}")
+def update_brand_profile(profile_id: str, body: BrandProfileUpdate, user=Depends(get_current_user)):
+    sb = get_supabase()
+    updates = {"updated_at": "now()"}
+    if body.name is not None:
+        updates["name"] = body.name
+    if body.data is not None:
+        updates["data"] = body.data
+    sb.table("brand_profiles").update(updates).eq("id", profile_id).eq("user_id", user.id).execute()
+    return {"updated": True}
+
+
+@router.delete("/brand-profiles/{profile_id}")
+def delete_brand_profile(profile_id: str, user=Depends(get_current_user)):
+    sb = get_supabase()
+    sb.table("brand_profiles").delete().eq("id", profile_id).eq("user_id", user.id).execute()
+    return {"deleted": True}
