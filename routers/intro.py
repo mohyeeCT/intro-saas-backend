@@ -105,22 +105,41 @@ def _relevance_score(query: str, h1: str) -> float:
 
 
 def _position_score(position: float) -> float:
-    if position <= 20:
-        return 1.0
-    return max(0.1, 1.0 - (position - 20) * 0.05)
+    """Positions 1-20 score 1.0. Beyond 20 drops off."""
+    return 1 / (1 + max(0, position - 20) * 0.1)
 
 
-def _score_candidate(kw: str, impressions: float, ctr: float, position: float, volume: int, difficulty: int, h1: str) -> float:
-    """Unified scoring for any keyword source."""
-    if volume == 0:
-        return 0.0
+def _score_candidate(
+    kw: str, impressions: float, ctr: float, position: float,
+    volume: int, difficulty: int, h1: str,
+    restricted_industry: bool = False,
+    clicks: float = 0,
+) -> float:
+    """Unified scoring for any keyword source.
+    - CTR capped at 0.15 to prevent outlier CTR from dominating
+    - restricted_industry: score on GSC signals only when DFS suppresses volume
+    - Zero-volume: proxy score with 0.1 penalty in standard mode
+    """
     difficulty = difficulty or 50
     pos_score = _position_score(position)
     rel_score = _relevance_score(kw, h1)
-    return round(
-        (volume / difficulty) * math.log1p(impressions) * (1 + ctr) * pos_score * rel_score,
-        4,
-    )
+    ctr_capped = min(ctr, 0.15)
+    ctr_boost = 1 + ctr_capped
+
+    if volume == 0:
+        if impressions > 0:
+            if restricted_industry:
+                clicks_boost = max(math.log1p(clicks), 1.0)
+                return round(math.log1p(impressions) * clicks_boost * ctr_boost * pos_score * rel_score, 4)
+            else:
+                return round(math.log1p(impressions) * ctr_boost * 0.1, 4)
+        return 0.0
+
+    if restricted_industry:
+        clicks_boost = max(math.log1p(clicks), 1.0)
+        return round(math.log1p(impressions) * clicks_boost * ctr_boost * pos_score * rel_score, 4)
+
+    return round((volume / difficulty) * math.log1p(impressions) * ctr_boost * pos_score * rel_score, 4)
 
 
 def select_intro_keywords(
@@ -134,6 +153,7 @@ def select_intro_keywords(
     h1: str,
     max_supporting: int,
     used_primaries: set,
+    restricted_industry: bool = False,
 ) -> dict:
     """Merge three keyword sources, score all, return primary + supporting.
 
@@ -158,10 +178,12 @@ def select_intro_keywords(
             continue
         vol = dfs_volume_data.get(kw, {}).get("volume", 0) or 0
         diff = dfs_diff_data.get(kw, {}).get("difficulty", 50) or 50
-        if vol < min_volume:
+        impressions = q.get("impressions", 0)
+        if not restricted_industry and vol < min_volume and impressions == 0:
             continue
-        sc = _score_candidate(kw, q.get("impressions", 0), q.get("ctr", 0), q.get("position", 99), vol, diff, h1)
-        if kw not in seen or sc > seen[kw]["score"]:
+        sc = _score_candidate(kw, impressions, q.get("ctr", 0), q.get("position", 99), vol, diff, h1,
+                              restricted_industry=restricted_industry, clicks=q.get("clicks", 0))
+        if sc > 0 and (kw not in seen or sc > seen[kw]["score"]):
             seen[kw] = {"keyword": q["query"], "score": sc, "volume": vol, "difficulty": diff, "source": "gsc"}
 
     # 2. DFS ranked keywords (already have volume/difficulty embedded)
@@ -171,10 +193,12 @@ def select_intro_keywords(
             continue
         vol = r.get("volume", 0) or 0
         diff = r.get("difficulty", 50) or 50
-        if vol < min_volume:
+        impressions = r.get("impressions", 0)
+        if not restricted_industry and vol < min_volume and impressions == 0:
             continue
-        sc = _score_candidate(kw, r.get("impressions", 0), r.get("ctr", 0), r.get("position", 99), vol, diff, h1)
-        if kw not in seen or sc > seen[kw]["score"]:
+        sc = _score_candidate(kw, impressions, r.get("ctr", 0), r.get("position", 99), vol, diff, h1,
+                              restricted_industry=restricted_industry, clicks=r.get("clicks", 0))
+        if sc > 0 and (kw not in seen or sc > seen[kw]["score"]):
             seen[kw] = {"keyword": r["query"], "score": sc, "volume": vol, "difficulty": diff, "source": "dfs_ranked"}
 
     # 3. Manual seeds -- add to pool with DFS volume if available, else base score 0.01
@@ -375,6 +399,7 @@ def _process_single_row(
         h1=h1,
         max_supporting=settings.get("max_supporting_keywords", 5),
         used_primaries=used_primaries,
+        restricted_industry=settings.get("restricted_industry", False),
     )
 
     primary_kw_data = selection.get("primary")

@@ -26,6 +26,7 @@ class JobSettings(BaseModel):
     brand_profile_id: str = ""  # ID from brand_profiles table
     include_brand: bool = False
     forbidden_phrases: str = ""
+    restricted_industry: bool = False  # Score on GSC signals only when DFS suppresses volume
     branded_terms_input: str = ""
 
     # DataForSEO
