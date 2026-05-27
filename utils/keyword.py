@@ -23,10 +23,10 @@ def _relevance_score(query: str, h1: str) -> float:
 
 
 def _position_score(position: float) -> float:
-    """Positions 1-20 score 1.0. Beyond 20 drops off."""
-    if position <= 20:
-        return 1.0
-    return max(0.1, 1.0 - (position - 20) * 0.05)
+    """Positions 1-20 score 1.0. Beyond 20 drops off.
+    Formula matches Streamlit: 1 / (1 + max(0, position - 20) * 0.1)
+    """
+    return 1 / (1 + max(0, position - 20) * 0.1)
 
 
 def score_query(query_data: dict, dfs_data: dict, h1: str = "") -> float:
