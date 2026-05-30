@@ -131,13 +131,18 @@ def _rerun_single_row(job_id: str, row_index: int, rows: list, settings: dict, s
         if keyword_override:
             row = {**row, "keyword": keyword_override}
 
-        # api_key excluded from stored settings — fetch from user_settings
+        # api_key and dfs_password excluded from stored settings — fetch from user_settings
         api_key = settings.get("api_key", "")
-        if not api_key:
+        dfs_password = settings.get("dfs_password", "")
+        if not api_key or not dfs_password:
             try:
                 creds_res = sb.table("user_settings").select("provider_settings").eq("user_id", user_id).execute()
                 if creds_res.data:
-                    api_key = (creds_res.data[0].get("provider_settings") or {}).get("api_key", "")
+                    ps = creds_res.data[0].get("provider_settings") or {}
+                    if not api_key:
+                        api_key = ps.get("api_key", "")
+                    if not dfs_password:
+                        dfs_password = ps.get("dfs_password", "")
             except Exception:
                 pass
 
@@ -162,7 +167,7 @@ def _rerun_single_row(job_id: str, row_index: int, rows: list, settings: dict, s
             manual_terms = [t.strip().lower() for t in branded_terms_input.splitlines() if t.strip()]
             branded_terms = list(set(branded_terms + manual_terms))
 
-        settings_with_key = {**settings, "api_key": api_key}
+        settings_with_key = {**settings, "api_key": api_key, "dfs_password": dfs_password}
 
         # Run the single row through full pipeline
         from routers.intro import _process_single_row, _update_job
