@@ -77,6 +77,10 @@ class RerunRequest(BaseModel):
     keyword_override: str = ""
 
 
+class MultiRerunRequest(BaseModel):
+    row_indices: list[int]
+
+
 @router.post("/{job_id}/rerun-row/{row_index}")
 def rerun_row(
     job_id: str,
@@ -110,11 +114,11 @@ def rerun_row(
         "updated_at": "now()"
     }).eq("id", job_id).execute()
 
-    background_tasks.add_task(_rerun_single_row, job_id, row_index, rows, settings, sb, keyword_override)
+    background_tasks.add_task(_rerun_single_row, job_id, row_index, rows, settings, sb, keyword_override, user.id)
     return {"status": "rerunning"}
 
 
-def _rerun_single_row(job_id: str, row_index: int, rows: list, settings: dict, sb, keyword_override: str = ""):
+def _rerun_single_row(job_id: str, row_index: int, rows: list, settings: dict, sb, keyword_override: str = "", user_id: str = ""):
     """Background task to re-run one row and update its result in place."""
     import traceback, time
     from utils.copy_gen import generate_intro
@@ -124,16 +128,24 @@ def _rerun_single_row(job_id: str, row_index: int, rows: list, settings: dict, s
 
     try:
         row = rows[row_index]
-        # Apply keyword override if provided - inject as manual keyword
         if keyword_override:
             row = {**row, "keyword": keyword_override}
+
+        # api_key excluded from stored settings — fetch from user_settings
         api_key = settings.get("api_key", "")
+        if not api_key:
+            try:
+                creds_res = sb.table("user_settings").select("provider_settings").eq("user_id", user_id).execute()
+                if creds_res.data:
+                    api_key = (creds_res.data[0].get("provider_settings") or {}).get("api_key", "")
+            except Exception:
+                pass
 
         # Re-init GSC if needed
         gsc_client = None
         if settings.get("use_gsc"):
             try:
-                sa_res = sb.table("user_settings").select("gsc_service_account").limit(1).execute()
+                sa_res = sb.table("user_settings").select("gsc_service_account").eq("user_id", user_id).execute()
                 if sa_res.data and sa_res.data[0].get("gsc_service_account"):
                     gsc_client = get_gsc_client(sa_res.data[0]["gsc_service_account"])
             except Exception:
@@ -150,7 +162,6 @@ def _rerun_single_row(job_id: str, row_index: int, rows: list, settings: dict, s
             manual_terms = [t.strip().lower() for t in branded_terms_input.splitlines() if t.strip()]
             branded_terms = list(set(branded_terms + manual_terms))
 
-        # Temporarily inject api_key (not stored in settings for security)
         settings_with_key = {**settings, "api_key": api_key}
 
         # Run the single row through full pipeline
@@ -160,8 +171,7 @@ def _rerun_single_row(job_id: str, row_index: int, rows: list, settings: dict, s
             settings=settings_with_key,
             gsc_client=gsc_client,
             branded_terms=branded_terms,
-            used_keywords=set(),
-            used_question_patterns=[],
+            used_primaries=set(),
             sb=sb,
             job_id=job_id,
             row_num=row_index + 1,
@@ -188,6 +198,120 @@ def _rerun_single_row(job_id: str, row_index: int, rows: list, settings: dict, s
             "current_step": f"Row {row_index + 1} failed: {traceback.format_exc(limit=1)[:120]}",
             "updated_at": "now()"
         }).eq("id", job_id).execute()
+
+
+@router.post("/{job_id}/cancel")
+def cancel_job(job_id: str, user=Depends(get_current_user), sb=Depends(get_supabase)):
+    """Cancel a running job."""
+    res = sb.table("jobs").select("id, status, user_id").eq("id", job_id).eq("user_id", user.id).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if res.data[0]["status"] != "running":
+        raise HTTPException(status_code=400, detail=f"Job is not running (status: {res.data[0]['status']})")
+    sb.table("jobs").update({
+        "status": "cancelling",
+        "current_step": "Cancelling — stopping after current row...",
+    }).eq("id", job_id).eq("user_id", user.id).execute()
+    return {"cancelling": True}
+
+
+@router.post("/{job_id}/rerun-rows")
+def rerun_rows(
+    job_id: str,
+    body: MultiRerunRequest,
+    background_tasks: BackgroundTasks,
+    user=Depends(get_current_user),
+    sb=Depends(get_supabase),
+):
+    """Re-run multiple rows from a completed job."""
+    res = sb.table("jobs").select("*").eq("id", job_id).eq("user_id", user.id).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Job not found")
+    job = res.data[0]
+    rows = job.get("rows", [])
+    settings = job.get("settings", {})
+    valid_indices = [i for i in body.row_indices if 0 <= i < len(rows)]
+    if not valid_indices:
+        raise HTTPException(status_code=400, detail="No valid row indices provided")
+    sb.table("jobs").update({
+        "status": "running",
+        "current_step": f"Re-running {len(valid_indices)} row(s)...",
+        "updated_at": "now()",
+    }).eq("id", job_id).execute()
+    background_tasks.add_task(_rerun_multiple_rows, job_id, valid_indices, rows, settings, sb, user.id)
+    return {"status": "rerunning", "row_count": len(valid_indices)}
+
+
+def _rerun_multiple_rows(job_id: str, row_indices: list, rows: list, settings: dict, sb, user_id: str = ""):
+    """Run multiple rows sequentially, updating results in place."""
+    import re as _re
+    from routers.intro import _process_single_row, _update_job
+    from utils.gsc import get_gsc_client
+
+    # Fetch credentials from user_settings
+    api_key = settings.get("api_key", "")
+    dfs_password = settings.get("dfs_password", "")
+    if not api_key or not dfs_password:
+        try:
+            creds = sb.table("user_settings").select("provider_settings").eq("user_id", user_id).execute()
+            if creds.data:
+                ps = creds.data[0].get("provider_settings") or {}
+                if not api_key:
+                    api_key = ps.get("api_key", "")
+                if not dfs_password:
+                    dfs_password = ps.get("dfs_password", "")
+        except Exception:
+            pass
+
+    gsc_client = None
+    if settings.get("use_gsc"):
+        try:
+            sa_res = sb.table("user_settings").select("gsc_service_account").eq("user_id", user_id).execute()
+            if sa_res.data and sa_res.data[0].get("gsc_service_account"):
+                gsc_client = get_gsc_client(sa_res.data[0]["gsc_service_account"])
+        except Exception:
+            pass
+
+    branded_terms = [b.strip() for b in settings.get("brand_name", "").split() if b.strip()]
+    full_brand = settings.get("full_brand_name", "").strip()
+    if full_brand:
+        branded_terms = list(set(branded_terms + [w.lower() for w in _re.findall(r"[a-zA-Z]+", full_brand) if len(w) >= 3]))
+    branded_input = settings.get("branded_terms_input", "").strip()
+    if branded_input:
+        branded_terms = list(set(branded_terms + [t.strip().lower() for t in branded_input.splitlines() if t.strip()]))
+
+    res = sb.table("jobs").select("results").eq("id", job_id).execute()
+    results = list(res.data[0].get("results") or []) if res.data else []
+    while len(results) < len(rows):
+        results.append({})
+
+    for n, row_index in enumerate(row_indices):
+        _update_job(sb, job_id, {
+            "current_step": f"Re-running row {row_index + 1} ({n + 1}/{len(row_indices)})...",
+        })
+        try:
+            result = _process_single_row(
+                row=rows[row_index],
+                settings={**settings, "api_key": api_key, "dfs_password": dfs_password},
+                gsc_client=gsc_client,
+                branded_terms=branded_terms,
+                used_primaries=set(),
+                sb=sb,
+                job_id=job_id,
+                row_num=row_index + 1,
+                total_rows=len(rows),
+            )
+            results[row_index] = result
+        except Exception as e:
+            results[row_index] = {"url": rows[row_index].get("url", ""), "error": str(e), "status": "error"}
+
+    sb.table("jobs").update({
+        "status": "complete",
+        "current_step": f"Re-run complete — {len(row_indices)} row(s) updated.",
+        "results": results,
+        "failed_rows": sum(1 for r in results if r.get("error") or r.get("status") == "error"),
+        "updated_at": "now()",
+    }).eq("id", job_id).execute()
 
 
 @router.post("/{job_id}/duplicate")

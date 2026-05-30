@@ -338,8 +338,12 @@ def _process_single_row(
         if scrape_result.get("success"):
             page_context = scrape_result["content"]
             scrape_status = f"ok ({len(page_context)} chars)"
+            step(f"scrape ok — {len(page_context):,} chars extracted")
         else:
             scrape_status = f"failed: {scrape_result.get('error', 'unknown')[:80]}"
+            step(f"⚠ scrape failed — {scrape_result.get('error', 'unknown')[:60]}")
+    else:
+        step("scrape skipped (disabled or no Jina key)")
 
     # 2. Collect keyword sources
     gsc_queries = []
@@ -352,8 +356,10 @@ def _process_single_row(
         gsc_result = get_top_queries_for_url(gsc_client, settings["site_url"], url, top_n=10)
         if gsc_result and not gsc_result[0].get("_error"):
             gsc_queries = gsc_result
+            step(f"GSC: {len(gsc_queries)} quer" + ("y" if len(gsc_queries)==1 else "ies") + " found")
         elif gsc_result and gsc_result[0].get("_error"):
             keyword_source_label = f"GSC error: {gsc_result[0]['_error'][:100]}"
+            step(f"✗ GSC error — {gsc_result[0]['_error'][:80]}")
 
     # DFS ranked keywords for this page
     step("fetching DFS ranked keywords...")
@@ -361,6 +367,8 @@ def _process_single_row(
         settings["dfs_login"], settings["dfs_password"],
         url, settings.get("location_code", 2840),
     )
+    if dfs_ranked:
+        step(f"DFS ranked keywords: {len(dfs_ranked)} found")
 
     # 3. DFS volume + difficulty for all unique query strings
     all_query_strings = list({q["query"].lower() for q in gsc_queries})
@@ -406,9 +414,17 @@ def _process_single_row(
     cluster_source = selection.get("cluster_source", "none")
     runner_up_data = selection.get("runner_up")
 
+    if primary_kw_data:
+        _kw = primary_kw_data.get("keyword", "")
+        _vol = primary_kw_data.get("volume") or 0
+        _src = cluster_source or "unknown"
+        step("keyword selected: " + str(_kw) + " [" + str(_src) + "]" + (", vol:" + str(_vol) if _vol else ""))
+    else:
+        step("⚠ no keyword found from GSC/DFS/manual — checking H1 fallback...")
+
     # 5. H1 fallback if no keyword found
     if not primary_kw_data and h1:
-        step("no keyword found -- running H1 fallback...")
+        step("no keyword found — running H1 fallback...")
         seeds = h1_phrase_seeds(h1)
         if seeds:
             h1_vol = get_keyword_overview(
@@ -448,6 +464,7 @@ def _process_single_row(
                 cluster_source = "h1_fallback"
 
     if not primary_kw_data:
+        step("✗ no keyword found after all sources — skipping AI call")
         return {
             **_empty_result(url, status="skipped: no keyword found"),
             "cluster_source": cluster_source,
@@ -512,6 +529,7 @@ def _process_single_row(
         }
 
     actual_word_count = len(intro_copy.split())
+    step(f"✓ intro generated — {actual_word_count} words")
 
     # Track primary so next rows skip it
     used_primaries.add(primary_keyword.lower())
@@ -534,6 +552,15 @@ def _process_single_row(
 
 
 # ── Background job processor ──────────────────────────────────────────────────
+
+def _is_cancelled(sb, job_id: str) -> bool:
+    """Check if job has been cancelled by the user."""
+    try:
+        res = sb.table("jobs").select("status").eq("id", job_id).execute()
+        return res.data and res.data[0].get("status") == "cancelling"
+    except Exception:
+        return False
+
 
 def _process_job(job_id: str, rows: list, settings: dict, sa_info: dict, brand_profile: dict = None):
     sb = get_supabase()
@@ -588,8 +615,25 @@ def _process_job(job_id: str, rows: list, settings: dict, sa_info: dict, brand_p
             "results": results,
         })
 
+        if _is_cancelled(sb, job_id):
+            _update_job(sb, job_id, {
+                "status": "cancelled",
+                "current_step": f"Cancelled after {idx + 1}/{total} rows.",
+                "failed_rows": sum(1 for r in results if r.get("error") or r.get("status") == "error"),
+            })
+            return
+
         if idx < len(rows) - 1:
             time.sleep(delay)
+
+    if _is_cancelled(sb, job_id):
+        _update_job(sb, job_id, {
+            "status": "cancelled",
+            "current_step": "Cancelled.",
+            "failed_rows": sum(1 for r in results if r.get("error") or r.get("status") == "error"),
+            "results": results,
+        })
+        return
 
     _update_job(sb, job_id, {
         "status": "complete",
@@ -602,7 +646,21 @@ def _process_job(job_id: str, rows: list, settings: dict, sa_info: dict, brand_p
 
 def _update_job(sb, job_id: str, data: dict):
     try:
-        sb.table("jobs").update({**data, "updated_at": "now()"}).eq("id", job_id).execute()
+        update_data = {**data, "updated_at": "now()"}
+        if "current_step" in data and data["current_step"]:
+            from datetime import datetime, timezone
+            log_entry = {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "msg": data["current_step"],
+            }
+            try:
+                res = sb.table("jobs").select("logs").eq("id", job_id).execute()
+                current_logs = (res.data[0].get("logs") or []) if res.data else []
+                current_logs.append(log_entry)
+                update_data["logs"] = current_logs
+            except Exception:
+                pass
+        sb.table("jobs").update(update_data).eq("id", job_id).execute()
     except Exception:
         pass
 
