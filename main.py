@@ -11,7 +11,8 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://intro.copypilot.app",
+        "https://copypilot.app",           # unified platform
+        "https://intro.copypilot.app",     # legacy — keep during transition
     ],
     allow_credentials=True,
     allow_methods=["*"],
