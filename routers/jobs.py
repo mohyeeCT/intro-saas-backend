@@ -169,7 +169,17 @@ def _rerun_single_row(job_id: str, row_index: int, rows: list, settings: dict, s
 
         settings_with_key = {**settings, "api_key": api_key, "dfs_password": dfs_password}
 
-        # Run the single row through full pipeline
+        # Re-fetch brand profile if one was used on the original job
+        brand_profile = {}
+        brand_profile_id = settings.get("brand_profile_id")
+        if brand_profile_id:
+            try:
+                bp_res = sb.table("brand_profiles").select("data").eq("id", brand_profile_id).eq("user_id", user_id).execute()
+                if bp_res.data:
+                    brand_profile = bp_res.data[0].get("data") or {}
+            except Exception:
+                pass
+
         from routers.intro import _process_single_row, _update_job
         result = _process_single_row(
             row=row,
@@ -181,6 +191,7 @@ def _rerun_single_row(job_id: str, row_index: int, rows: list, settings: dict, s
             job_id=job_id,
             row_num=row_index + 1,
             total_rows=len(rows),
+            brand_profile=brand_profile,
         )
 
         # Update just this row's result in the existing results array
@@ -285,6 +296,16 @@ def _rerun_multiple_rows(job_id: str, row_indices: list, rows: list, settings: d
     if branded_input:
         branded_terms = list(set(branded_terms + [t.strip().lower() for t in branded_input.splitlines() if t.strip()]))
 
+    brand_profile = {}
+    brand_profile_id = settings.get("brand_profile_id")
+    if brand_profile_id:
+        try:
+            bp_res = sb.table("brand_profiles").select("data").eq("id", brand_profile_id).eq("user_id", user_id).execute()
+            if bp_res.data:
+                brand_profile = bp_res.data[0].get("data") or {}
+        except Exception:
+            pass
+
     res = sb.table("jobs").select("results").eq("id", job_id).execute()
     results = list(res.data[0].get("results") or []) if res.data else []
     while len(results) < len(rows):
@@ -305,6 +326,7 @@ def _rerun_multiple_rows(job_id: str, row_indices: list, rows: list, settings: d
                 job_id=job_id,
                 row_num=row_index + 1,
                 total_rows=len(rows),
+                brand_profile=brand_profile,
             )
             results[row_index] = result
         except Exception as e:
