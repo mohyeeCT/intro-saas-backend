@@ -16,6 +16,7 @@ class JobSettings(BaseModel):
     api_key: str
 
     # Copy config
+    niche: str = "none"
     business_type: str = "general"
     page_template: str = "service_lp"
     word_count: int = 100
