@@ -11,6 +11,7 @@ from models import RunJobRequest, JobSettings, JobRow
 from utils.copy_gen import generate_intro
 from utils.dfs import get_keyword_overview, get_keyword_difficulty, _auth_header, DFS_BASE
 from utils.gsc import get_gsc_client, get_top_queries_for_url
+from utils.niches import get_niche_context
 from utils.keyword import select_keyword
 from utils.scraper import scrape_page_context
 
@@ -344,6 +345,11 @@ def _process_single_row(
             step(f"⚠ scrape failed — {scrape_result.get('error', 'unknown')[:60]}")
     else:
         step("scrape skipped (disabled or no Jina key)")
+
+    # Append niche context to page_context so it reaches the AI prompt
+    _niche_ctx = get_niche_context(settings.get("niche", ""))
+    if _niche_ctx:
+        page_context = (page_context + "\n\n" + _niche_ctx).strip()
 
     # 2. Collect keyword sources
     gsc_queries = []
