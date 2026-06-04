@@ -28,6 +28,23 @@ _RATE_LIMITS = {
 
 # ── DFS ranked keywords for a specific page ───────────────────────────────────
 
+def _relative_url_variants(parsed_url) -> list:
+    """Return likely DataForSEO relative_url forms for the same page."""
+    path = parsed_url.path or "/"
+    variants = [path]
+
+    if path != "/":
+        if path.endswith("/"):
+            variants.append(path.rstrip("/"))
+        else:
+            variants.append(path + "/")
+
+    if parsed_url.query:
+        variants = [f"{variant}?{parsed_url.query}" for variant in variants] + variants
+
+    return list(dict.fromkeys(variants))
+
+
 def get_ranked_keywords_for_page(login: str, password: str, url: str, location_code: int = 2840) -> list:
     """Pull keywords the URL already ranks for via DFS dataforseo_labs/ranked_keywords.
 
@@ -37,50 +54,49 @@ def get_ranked_keywords_for_page(login: str, password: str, url: str, location_c
     try:
         parsed = urllib.parse.urlparse(url)
         domain = parsed.netloc.lstrip("www.")
-        relative_path = parsed.path or "/"
-        if parsed.query:
-            relative_path += "?" + parsed.query
+        for relative_path in _relative_url_variants(parsed):
+            payload = [{
+                "target": domain,
+                "location_code": location_code,
+                "language_code": "en",
+                "limit": 100,
+                "filters": [
+                    ["ranked_serp_element.serp_item.relative_url", "=", relative_path]
+                ],
+            }]
 
-        payload = [{
-            "target": domain,
-            "location_code": location_code,
-            "language_code": "en",
-            "limit": 100,
-            "filters": [
-                ["ranked_serp_element.serp_item.relative_url", "=", relative_path]
-            ],
-        }]
+            r = requests.post(
+                f"{DFS_BASE}/dataforseo_labs/google/ranked_keywords/live",
+                headers=_auth_header(login, password),
+                json=payload,
+                timeout=30,
+            )
+            r.raise_for_status()
+            data = r.json()
 
-        r = requests.post(
-            f"{DFS_BASE}/dataforseo_labs/google/ranked_keywords/live",
-            headers=_auth_header(login, password),
-            json=payload,
-            timeout=30,
-        )
-        r.raise_for_status()
-        data = r.json()
-
-        results = []
-        for task in data.get("tasks", []):
-            for result_block in (task.get("result") or []):
-                for item in (result_block.get("items") or []):
-                    kw_data = item.get("keyword_data", {})
-                    serp_el = item.get("ranked_serp_element", {}).get("serp_item", {})
-                    kw = kw_data.get("keyword", "").strip().lower()
-                    if not kw:
-                        continue
-                    volume = (kw_data.get("keyword_info", {}) or {}).get("search_volume", 0) or 0
-                    difficulty = (kw_data.get("keyword_properties", {}) or {}).get("keyword_difficulty", 50) or 50
-                    position = serp_el.get("rank_absolute", 99) or 99
-                    results.append({
-                        "query": kw,
-                        "impressions": 0,
-                        "ctr": 0.0,
-                        "position": float(position),
-                        "volume": volume,
-                        "difficulty": difficulty,
-                    })
-        return results
+            results = []
+            for task in data.get("tasks", []):
+                for result_block in (task.get("result") or []):
+                    for item in (result_block.get("items") or []):
+                        kw_data = item.get("keyword_data", {})
+                        serp_el = item.get("ranked_serp_element", {}).get("serp_item", {})
+                        kw = kw_data.get("keyword", "").strip().lower()
+                        if not kw:
+                            continue
+                        volume = (kw_data.get("keyword_info", {}) or {}).get("search_volume", 0) or 0
+                        difficulty = (kw_data.get("keyword_properties", {}) or {}).get("keyword_difficulty", 50) or 50
+                        position = serp_el.get("rank_absolute", 99) or 99
+                        results.append({
+                            "query": kw,
+                            "impressions": 0,
+                            "ctr": 0.0,
+                            "position": float(position),
+                            "volume": volume,
+                            "difficulty": difficulty,
+                        })
+            if results:
+                return results
+        return []
     except Exception:
         return []
 
