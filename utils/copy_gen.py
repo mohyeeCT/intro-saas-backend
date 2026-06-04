@@ -83,6 +83,30 @@ _TEMPLATE_RULES = {
 
 # ── Provider routing ──────────────────────────────────────────────────────────
 
+UNSUPPORTED_CLAIM_GUARDRAIL = """
+UNSUPPORTED CLAIM GUARDRAIL:
+- Do not state or imply return, shipping, delivery, warranty, guarantee, refund,
+  exchange, eligibility, availability, stock, pricing, discount, certification,
+  compliance, safety, legal, medical, or performance claims unless they are
+  explicitly present in approved brand guidance or scraped page content.
+- Treat GSC, DataForSEO, keywords, templates, business type, and niche context as
+  strategy signals only. They are not proof for factual claims.
+- If a risky claim would normally be expected for this page type, write a safer
+  general benefit, product/category fit, audience, use case, or topic framing
+  instead.
+""".strip()
+
+
+SCRAPED_CONTEXT_GUARDRAIL = """
+SCRAPED CONTEXT GUARDRAIL:
+- Use scraped page content only to understand the page topic and stable details.
+- Do not turn scraped prices, exact sizes, stock levels, product counts, variant
+  counts, discounts, or policy details into claims unless the brand guidance
+  clearly approves using those specifics.
+- Prefer stable, general wording when context appears temporary or inventory-led.
+""".strip()
+
+
 DEFAULT_MODELS = {
     "Claude": "claude-sonnet-4-6",
     "OpenAI": "gpt-4o-mini",
@@ -269,6 +293,10 @@ ENGAGEMENT (secondary objective — 25% of quality signal):
 - The first sentence should give the reader a reason to keep reading
 - For blog and brand templates, opening hook matters more than other types
 - The final sentence can include a light forward-pointing phrase (what the page covers, what the reader will learn), but only if it fits naturally
+
+{UNSUPPORTED_CLAIM_GUARDRAIL}
+
+{SCRAPED_CONTEXT_GUARDRAIL}
 
 {context_block}
 
