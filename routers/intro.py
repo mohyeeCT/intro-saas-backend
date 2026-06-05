@@ -9,7 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from auth import get_current_user, get_supabase
 from models import RunJobRequest, JobSettings, JobRow
 from utils.copy_gen import generate_intro
-from utils.dfs import get_keyword_overview, get_keyword_difficulty, _auth_header, DFS_BASE
+from utils.dfs import get_keyword_overview, get_keyword_difficulty, _auth_header, _raise_api_error, DFS_BASE
 from utils.gsc import get_gsc_client, get_top_queries_for_url
 from utils.niches import get_niche_context
 from utils.keyword import select_keyword
@@ -73,6 +73,7 @@ def get_ranked_keywords_for_page(login: str, password: str, url: str, location_c
             )
             r.raise_for_status()
             data = r.json()
+            _raise_api_error(data)
 
             results = []
             for task in data.get("tasks", []):
@@ -97,8 +98,8 @@ def get_ranked_keywords_for_page(login: str, password: str, url: str, location_c
             if results:
                 return results
         return []
-    except Exception:
-        return []
+    except Exception as e:
+        raise RuntimeError(f"DataForSEO ranked keywords failed: {e}") from e
 
 
 # ── Keyword pool merge and selection ─────────────────────────────────────────
@@ -385,10 +386,15 @@ def _process_single_row(
 
     # DFS ranked keywords for this page
     step("fetching DFS ranked keywords...")
-    dfs_ranked = get_ranked_keywords_for_page(
-        settings["dfs_login"], settings["dfs_password"],
-        url, settings.get("location_code", 2840),
-    )
+    try:
+        dfs_ranked = get_ranked_keywords_for_page(
+            settings["dfs_login"], settings["dfs_password"],
+            url, settings.get("location_code", 2840),
+        )
+    except Exception as dfs_error:
+        dfs_ranked = []
+        keyword_source_label = f"DataForSEO error: {str(dfs_error)[:100]}"
+        step("DataForSEO ranked keyword lookup failed - " + str(dfs_error)[:120])
     if dfs_ranked:
         step(f"DFS ranked keywords: {len(dfs_ranked)} found")
 
@@ -405,16 +411,18 @@ def _process_single_row(
 
     if all_query_strings:
         step("fetching keyword volume + difficulty...")
-        vol_raw = get_keyword_overview(
-            settings["dfs_login"], settings["dfs_password"],
-            all_query_strings, settings.get("location_code", 2840),
-        )
-        diff_raw = get_keyword_difficulty(
-            settings["dfs_login"], settings["dfs_password"],
-            all_query_strings, settings.get("location_code", 2840),
-        )
-        dfs_volume_data = vol_raw
-        dfs_diff_data = diff_raw
+        try:
+            dfs_volume_data = get_keyword_overview(
+                settings["dfs_login"], settings["dfs_password"],
+                all_query_strings, settings.get("location_code", 2840),
+            )
+            dfs_diff_data = get_keyword_difficulty(
+                settings["dfs_login"], settings["dfs_password"],
+                all_query_strings, settings.get("location_code", 2840),
+            )
+        except Exception as dfs_error:
+            keyword_source_label = f"DataForSEO error: {str(dfs_error)[:100]}"
+            step("DataForSEO keyword lookup failed - " + str(dfs_error)[:120])
 
     # 4. Select keywords from merged pool
     step("scoring keyword pool...")
@@ -449,10 +457,15 @@ def _process_single_row(
         step("no keyword found — running H1 fallback...")
         seeds = h1_phrase_seeds(h1)
         if seeds:
-            h1_vol = get_keyword_overview(
-                settings["dfs_login"], settings["dfs_password"],
-                seeds, settings.get("location_code", 2840),
-            )
+            try:
+                h1_vol = get_keyword_overview(
+                    settings["dfs_login"], settings["dfs_password"],
+                    seeds, settings.get("location_code", 2840),
+                )
+            except Exception as dfs_error:
+                h1_vol = {}
+                keyword_source_label = f"DataForSEO error: {str(dfs_error)[:100]}"
+                step("DataForSEO H1 fallback lookup failed - " + str(dfs_error)[:120])
             # Pick seed with most volume
             best_seed = None
             best_vol = 0
@@ -462,10 +475,15 @@ def _process_single_row(
                     best_vol = vol
                     best_seed = seed
             if best_seed and best_vol >= settings.get("min_volume", 10):
-                h1_diff_data = get_keyword_difficulty(
-                    settings["dfs_login"], settings["dfs_password"],
-                    [best_seed], settings.get("location_code", 2840),
-                )
+                try:
+                    h1_diff_data = get_keyword_difficulty(
+                        settings["dfs_login"], settings["dfs_password"],
+                        [best_seed], settings.get("location_code", 2840),
+                    )
+                except Exception as dfs_error:
+                    h1_diff_data = {}
+                    keyword_source_label = f"DataForSEO error: {str(dfs_error)[:100]}"
+                    step("DataForSEO H1 difficulty lookup failed - " + str(dfs_error)[:120])
                 primary_kw_data = {
                     "keyword": best_seed,
                     "score": 0.0,
