@@ -14,6 +14,7 @@ app.add_middleware(
         "https://copypilot.app",           # unified platform
         "https://intro.copypilot.app",     # legacy — keep during transition
     ],
+    allow_origin_regex=r"https://copypilot-platform(?:-[a-z0-9-]+)?-mohyeects-projects\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
