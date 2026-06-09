@@ -12,7 +12,7 @@ from utils.copy_gen import generate_intro
 from utils.dfs import get_keyword_overview, get_keyword_difficulty, _auth_header, _raise_api_error, DFS_BASE
 from utils.gsc import get_gsc_client, get_top_queries_for_url
 from utils.niches import get_niche_context
-from utils.scraper import scrape_page_context
+from utils.scraper import scrape_page_context, is_ecommerce_collection_page
 
 router = APIRouter()
 
@@ -351,10 +351,16 @@ def _process_single_row(
     page_context = ""
     scrape_status = "skipped"
     if settings.get("scrape_pages") and settings.get("jina_api_key"):
-        scrape_result = scrape_page_context(settings["jina_api_key"], url)
+        scrape_mode = (
+            "ecommerce_collection"
+            if is_ecommerce_collection_page(settings.get("business_type"), row.get("page_type"))
+            else "default"
+        )
+        scrape_result = scrape_page_context(settings["jina_api_key"], url, mode=scrape_mode)
         if scrape_result.get("success"):
             page_context = scrape_result["content"]
-            scrape_status = f"ok ({len(page_context)} chars)"
+            scrape_label = "ecommerce collection" if scrape_mode == "ecommerce_collection" else "default"
+            scrape_status = f"ok {scrape_label} ({len(page_context)} chars)"
             step(f"scrape ok — {len(page_context):,} chars extracted")
         else:
             scrape_status = f"failed: {scrape_result.get('error', 'unknown')[:80]}"
