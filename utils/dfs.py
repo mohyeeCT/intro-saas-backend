@@ -12,6 +12,24 @@ def _auth_header(login: str, password: str) -> dict:
     }
 
 
+def _friendly_error(exc: Exception) -> str:
+    msg = str(exc)
+    msg_lower = msg.lower()
+    if "401" in msg:
+        return "Invalid DataForSEO login or password."
+    if "403" in msg:
+        return "DataForSEO account lacks required API permissions."
+    if "429" in msg or "20001" in msg or "too many requests" in msg_lower:
+        return "DataForSEO rate limit reached. Wait 60 seconds and retry."
+    if "timed out" in msg_lower or "timeout" in msg_lower:
+        return "DataForSEO request timed out. Check your internet connection."
+    if "connectionerror" in msg_lower or "remotedisconnected" in msg_lower:
+        return "Cannot connect to DataForSEO API. Check your internet connection."
+    if "40501" in msg:
+        return "DataForSEO: Invalid parameters. Check location code and keyword format."
+    return f"DataForSEO error: {msg}"
+
+
 def _raise_api_error(data: dict) -> None:
     status_code = data.get("status_code")
     if status_code is not None and status_code != 20000:
@@ -48,7 +66,7 @@ def get_keyword_overview(login: str, password: str, keywords: list, location_cod
                 }
         return result
     except Exception as e:
-        raise RuntimeError(f"DataForSEO keyword volume failed: {e}") from e
+        raise RuntimeError(_friendly_error(e)) from e
 
 
 def get_keyword_difficulty(login: str, password: str, keywords: list, location_code: int = 2840) -> dict:
@@ -76,7 +94,7 @@ def get_keyword_difficulty(login: str, password: str, keywords: list, location_c
                     }
         return result
     except Exception as e:
-        raise RuntimeError(f"DataForSEO keyword difficulty failed: {e}") from e
+        raise RuntimeError(_friendly_error(e)) from e
 
 
 

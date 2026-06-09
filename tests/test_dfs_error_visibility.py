@@ -9,12 +9,9 @@ from utils import dfs
 class DataForSeoErrorVisibilityTests(unittest.TestCase):
     @patch("utils.dfs.requests.post", side_effect=requests.Timeout("request timed out"))
     def test_keyword_helpers_raise_contextual_network_errors(self, _post):
-        for helper, label in (
-            (dfs.get_keyword_overview, "keyword volume"),
-            (dfs.get_keyword_difficulty, "keyword difficulty"),
-        ):
+        for helper in (dfs.get_keyword_overview, dfs.get_keyword_difficulty):
             with self.subTest(helper=helper.__name__):
-                with self.assertRaisesRegex(RuntimeError, f"DataForSEO {label} failed: request timed out"):
+                with self.assertRaisesRegex(RuntimeError, "DataForSEO request timed out"):
                     helper("login", "password", ["widgets"])
 
     @patch("utils.dfs.requests.post")
@@ -32,7 +29,7 @@ class DataForSeoErrorVisibilityTests(unittest.TestCase):
         }
         post.return_value = response
 
-        with self.assertRaisesRegex(RuntimeError, "DataForSEO keyword volume failed: 40100 Authentication failed"):
+        with self.assertRaisesRegex(RuntimeError, "Invalid DataForSEO login or password"):
             dfs.get_keyword_overview("login", "password", ["widgets"])
 
     @patch("time.sleep")
