@@ -6,7 +6,7 @@ See `../CLAUDE.md` for full platform context, conventions, and working rules.
 
 FastAPI backend for the Intro Copy workflow.
 Deployed on Railway EU West. Default branch: **`master`** (not main).
-Current HEAD: `dd0d189`. Runtime: Python 3.12.
+Current HEAD: `ec772ab`. Runtime: Python 3.12.
 
 Railway URL: `https://intro-saas-backend-production.up.railway.app`
 
@@ -22,7 +22,7 @@ routers/
   settings.py     — Shared settings CRUD
 utils/
   copy_gen.py     — generate_intro, sanitise, PROVIDER_FN, PROVIDER_DELAY
-  dfs.py          — Keyword volume, difficulty, SERP
+  dfs.py          — Keyword volume, difficulty (_friendly_error for human-readable errors)
   gsc.py          — GSC queries (checks both trailing and non-trailing URL variants)
   keyword.py      — select_keyword with used_primaries deduplication
   scraper.py      — Jina page scraping
@@ -60,10 +60,10 @@ full_brand_name: str = ""
 include_brand: bool = True
 forbidden_phrases: str = ""
 brand_profile_id: str = ""
-page_template: str = "standard"
-word_count: int = 120
-paragraph_count: int = 2
-max_supporting_keywords: int = 3
+page_template: str = "service_lp"
+word_count: int = 100          # clamped 60–300 via @field_validator
+paragraph_count: int = 1       # clamped 1–5 via @field_validator
+max_supporting_keywords: int = 5
 ```
 
 ## Known Gotchas
@@ -77,3 +77,8 @@ max_supporting_keywords: int = 3
 - Safety guardrails reject copy containing restricted-industry language or
   unsupported absolute claims. Review `generate_intro` prompt rules before
   modifying prompt templates.
+- `dfs.py` exports only `get_keyword_overview`, `get_keyword_difficulty`,
+  `_auth_header`, `_raise_api_error`, and `DFS_BASE`. The old `get_serp_data`
+  function and its helpers were removed — intro pipeline never called them.
+- `routers/intro.py` does NOT import `select_keyword` from `utils/keyword.py`;
+  it uses `select_intro_keywords` defined in the same file instead.
