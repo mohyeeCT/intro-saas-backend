@@ -6,7 +6,7 @@ See `../CLAUDE.md` for full platform context, conventions, and working rules.
 
 FastAPI backend for the Intro Copy workflow.
 Deployed on Railway EU West. Default branch: **`master`** (not main).
-Current HEAD: `ec772ab`. Runtime: Python 3.12.
+Current HEAD: `f701bad`. Runtime: Python 3.12.
 
 Railway URL: `https://intro-saas-backend-production.up.railway.app`
 
@@ -82,3 +82,6 @@ max_supporting_keywords: int = 5
   function and its helpers were removed — intro pipeline never called them.
 - `routers/intro.py` does NOT import `select_keyword` from `utils/keyword.py`;
   it uses `select_intro_keywords` defined in the same file instead.
+- `utils/scraper.py` exports `scrape_page_context` (with `mode` param) and
+  `is_ecommerce_collection_page`. Ecommerce collection mode activates only when
+  `business_type == "ecommerce"` AND `page_type` contains "category"/"collection".
