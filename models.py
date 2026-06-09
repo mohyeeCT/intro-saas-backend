@@ -1,5 +1,16 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional
+
+WORD_COUNT_MIN, WORD_COUNT_MAX = 60, 300
+PARAGRAPH_COUNT_MIN, PARAGRAPH_COUNT_MAX = 1, 5
+
+
+def _clamp_int(value, *, minimum: int, maximum: int, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(parsed, maximum))
 
 
 class JobRow(BaseModel):
@@ -43,6 +54,16 @@ class JobSettings(BaseModel):
     # GSC
     use_gsc: bool = True
     site_url: str = ""
+
+    @field_validator("word_count", mode="before")
+    @classmethod
+    def clamp_word_count(cls, value):
+        return _clamp_int(value, minimum=WORD_COUNT_MIN, maximum=WORD_COUNT_MAX, default=100)
+
+    @field_validator("paragraph_count", mode="before")
+    @classmethod
+    def clamp_paragraph_count(cls, value):
+        return _clamp_int(value, minimum=PARAGRAPH_COUNT_MIN, maximum=PARAGRAPH_COUNT_MAX, default=1)
 
 
 class RunJobRequest(BaseModel):
