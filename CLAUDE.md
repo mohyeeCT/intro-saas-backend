@@ -85,3 +85,23 @@ max_supporting_keywords: int = 5
 - `utils/scraper.py` exports `scrape_page_context` (with `mode` param) and
   `is_ecommerce_collection_page`. Ecommerce collection mode activates only when
   `business_type == "ecommerce"` AND `page_type` contains "category"/"collection".
+
+
+## Local Dev Setup
+
+Tests require FastAPI and all backend dependencies. Without a venv, `pytest`
+will fail on collection with `ModuleNotFoundError: No module named 'fastapi'`.
+
+```bash
+python -m venv .venv
+# Windows
+.venv\Scripts\activate
+# macOS / Linux
+source .venv/bin/activate
+
+pip install -r requirements.txt pytest
+python -m pytest tests/ -v
+```
+
+CI (GitHub Actions) installs dependencies automatically — this setup is only
+needed for local test runs.
