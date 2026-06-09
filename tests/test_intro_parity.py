@@ -54,6 +54,7 @@ def _install_router_import_stubs():
 
     scraper_stub = types.ModuleType("utils.scraper")
     scraper_stub.scrape_page_context = lambda *args, **kwargs: {"success": False}
+    scraper_stub.is_ecommerce_collection_page = lambda *args, **kwargs: False
     sys.modules.setdefault("utils.scraper", scraper_stub)
 
 
