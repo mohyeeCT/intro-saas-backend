@@ -24,7 +24,7 @@ class JobSettings(BaseModel):
     # AI provider
     provider: str = "Claude"
     model: Optional[str] = None
-    api_key: str
+    api_key: str = ""
 
     # Copy config
     niche: str = "none"
@@ -42,8 +42,8 @@ class JobSettings(BaseModel):
     branded_terms_input: str = ""
 
     # DataForSEO
-    dfs_login: str
-    dfs_password: str
+    dfs_login: str = ""
+    dfs_password: str = ""
     location_code: int = 2840
     min_volume: int = 10
 

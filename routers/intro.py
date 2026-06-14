@@ -7,6 +7,7 @@ import requests
 import base64
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from auth import get_current_user, get_supabase
+from credentials import hydrate_job_settings, load_user_credentials, strip_secret_fields
 from models import RunJobRequest, JobSettings, JobRow
 from utils.copy_gen import generate_intro
 from utils.dfs import get_keyword_overview, get_keyword_difficulty, _auth_header, _raise_api_error, DFS_BASE
@@ -719,13 +720,16 @@ def run_intro_job(
     user=Depends(get_current_user),
 ):
     sb = get_supabase()
+    runtime_settings = hydrate_job_settings(sb, user.id, request.settings.model_dump())
+    saved_credentials = load_user_credentials(sb, user.id)
+    if not runtime_settings.get("api_key") or not runtime_settings.get("dfs_password"):
+        raise HTTPException(status_code=400, detail="Saved provider credentials are incomplete. Update Settings and try again.")
 
     sa_info = None
     brand_profile = {}
     try:
-        res = sb.table("user_settings").select("gsc_service_account").eq("user_id", user.id).execute()
-        if res.data and request.settings.use_gsc:
-            sa_info = res.data[0].get("gsc_service_account")
+        if request.settings.use_gsc:
+            sa_info = saved_credentials.get("gsc_service_account")
     except Exception:
         pass
 
@@ -744,7 +748,7 @@ def run_intro_job(
         "status": "running",
         "name": request.name,
         "tool": "intro",
-        "settings": request.settings.model_dump(exclude={"api_key", "dfs_password"}),
+        "settings": strip_secret_fields(request.settings.model_dump()),
         "rows": [r.model_dump() for r in request.rows],
         "results": [],
         "total_rows": len(request.rows),
@@ -762,7 +766,7 @@ def run_intro_job(
         _process_job,
         job_id=job_id,
         rows=[r.model_dump() for r in request.rows],
-        settings=request.settings.model_dump(),
+        settings=runtime_settings,
         sa_info=sa_info,
         brand_profile=brand_profile,
     )
