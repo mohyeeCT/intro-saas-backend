@@ -7,6 +7,7 @@ import requests
 import base64
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from auth import get_current_user, get_supabase
+from abuse_protection import enforce_job_start, execute_active_job_write
 from credentials import hydrate_job_settings, load_user_credentials, strip_secret_fields
 from models import RunJobRequest, JobSettings, JobRow
 from utils.copy_gen import generate_intro
@@ -720,6 +721,7 @@ def run_intro_job(
     user=Depends(get_current_user),
 ):
     sb = get_supabase()
+    enforce_job_start(sb, user.id, "intro", len(request.rows), 100)
     runtime_settings = hydrate_job_settings(sb, user.id, request.settings.model_dump())
     saved_credentials = load_user_credentials(sb, user.id)
     if not runtime_settings.get("api_key") or not runtime_settings.get("dfs_password"):
@@ -756,7 +758,7 @@ def run_intro_job(
         "current_step": "Starting...",
     }
 
-    res = sb.table("jobs").insert(job_data).execute()
+    res = execute_active_job_write(lambda: sb.table("jobs").insert(job_data).execute(), "intro")
     if not res.data:
         raise HTTPException(status_code=500, detail="Failed to create job")
 
