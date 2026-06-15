@@ -1,7 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from auth import get_current_user, get_supabase
 from credentials import hydrate_job_settings
-from abuse_protection import enforce_job_start, execute_active_job_write
+from abuse_protection import enforce_job_start, enforce_rate_limit, execute_active_job_write
 
 router = APIRouter()
 
@@ -104,6 +104,7 @@ def rerun_row(
     if row_index < 0 or row_index >= len(rows):
         raise HTTPException(status_code=400, detail="Row index out of range")
     enforce_job_start(sb, user.id, "intro", 1, 100, exclude_job_id=job_id)
+    enforce_rate_limit(sb, user.id, "intro", "row-rerun", 30)
 
     keyword_override = (body.keyword_override or "").strip() if body else ""
 
@@ -254,6 +255,7 @@ def rerun_rows(
     if not valid_indices:
         raise HTTPException(status_code=400, detail="No valid row indices provided")
     enforce_job_start(sb, user.id, "intro", len(valid_indices), 100, exclude_job_id=job_id)
+    enforce_rate_limit(sb, user.id, "intro", "bulk-rerun", 10)
     execute_active_job_write(lambda: sb.table("jobs").update({
         "status": "running",
         "current_step": f"Re-running {len(valid_indices)} row(s)...",
@@ -359,6 +361,7 @@ def duplicate_job(
         raise HTTPException(status_code=404, detail="Job not found")
 
     original = res.data[0]
+    enforce_rate_limit(sb, user.id, "intro", "job-create", 10)
 
     new_job = {
         "user_id": user.id,

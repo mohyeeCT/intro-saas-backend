@@ -7,7 +7,7 @@ import requests
 import base64
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from auth import get_current_user, get_supabase
-from abuse_protection import enforce_job_start, execute_active_job_write
+from abuse_protection import enforce_job_start, enforce_rate_limit, execute_active_job_write
 from credentials import hydrate_job_settings, load_user_credentials, strip_secret_fields
 from models import RunJobRequest, JobSettings, JobRow
 from utils.copy_gen import generate_intro
@@ -722,6 +722,7 @@ def run_intro_job(
 ):
     sb = get_supabase()
     enforce_job_start(sb, user.id, "intro", len(request.rows), 100)
+    enforce_rate_limit(sb, user.id, "intro", "job-create", 10)
     runtime_settings = hydrate_job_settings(sb, user.id, request.settings.model_dump())
     saved_credentials = load_user_credentials(sb, user.id)
     if not runtime_settings.get("api_key") or not runtime_settings.get("dfs_password"):
