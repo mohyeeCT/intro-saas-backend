@@ -1,14 +1,14 @@
 import re
 import math
 import time
-import traceback
 import urllib.parse
 import requests
 import base64
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from google.auth.exceptions import RefreshError
 from auth import get_current_user, get_supabase
 from abuse_protection import enforce_job_start, enforce_rate_limit, execute_active_job_write
-from credentials import hydrate_job_settings, load_user_credentials, strip_secret_fields
+from credentials import hydrate_job_settings, mark_gsc_reconnect_required, strip_secret_fields
 from models import RunJobRequest, JobSettings, JobRow
 from utils.copy_gen import generate_intro
 from utils.dfs import get_keyword_overview, get_keyword_difficulty, _auth_header, _raise_api_error, DFS_BASE
@@ -17,6 +17,9 @@ from utils.niches import get_niche_context
 from utils.scraper import scrape_page_context, is_ecommerce_collection_page
 
 router = APIRouter()
+
+_GSC_RECONNECT_ERROR = "Google Search Console reconnect required."
+_GSC_UNAVAILABLE_ERROR = "Selected Google Search Console connection unavailable."
 
 _RATE_LIMITS = {
     "Claude": 0.5,
@@ -328,6 +331,7 @@ def _process_single_row(
     gsc_client,
     branded_terms: list,
     used_primaries: set,
+    user_id: str,
     sb=None,
     job_id: str = None,
     row_num: int = 1,
@@ -336,7 +340,7 @@ def _process_single_row(
 ) -> dict:
     def step(msg):
         if sb and job_id:
-            _update_job(sb, job_id, {"current_step": f"Row {row_num}/{total_rows}: {msg}"})
+            _update_job(sb, job_id, user_id, {"current_step": f"Row {row_num}/{total_rows}: {msg}"})
 
     url = (row.get("url") or "").strip()
     h1_raw = (row.get("h1") or "").strip()
@@ -562,9 +566,13 @@ def _process_single_row(
             model=settings.get("model"),
             brand_profile=brand_profile or {},
         )
-    except Exception as e:
+    except Exception:
         return {
-            **_empty_result(url, status="error", error=str(e)),
+            **_empty_result(
+                url,
+                status="error",
+                error="Row processing failed. Please try again.",
+            ),
             "primary_keyword": primary_keyword,
             "supporting_keywords": ", ".join(supporting_kws),
             "cluster_source": cluster_source,
@@ -600,27 +608,48 @@ def _process_single_row(
 
 # ── Background job processor ──────────────────────────────────────────────────
 
-def _is_cancelled(sb, job_id: str) -> bool:
+def _is_cancelled(sb, job_id: str, user_id: str) -> bool:
     """Check if job has been cancelled by the user."""
     try:
-        res = sb.table("jobs").select("status").eq("id", job_id).execute()
+        res = sb.table("jobs").select("status").eq("id", job_id).eq("user_id", user_id).execute()
         return res.data and res.data[0].get("status") == "cancelling"
     except Exception:
         return False
 
 
-def _process_job(job_id: str, rows: list, settings: dict, sa_info: dict, brand_profile: dict = None):
+def _process_job(
+    job_id: str,
+    rows: list,
+    settings: dict,
+    gsc_credentials: dict | None,
+    user_id: str,
+    brand_profile: dict = None,
+):
     sb = get_supabase()
     results = []
     used_primaries = set()
     delay = _RATE_LIMITS.get(settings["provider"], 1.0)
 
     gsc_client = None
-    if settings.get("use_gsc") and sa_info:
-        try:
-            gsc_client = get_gsc_client(sa_info)
-        except Exception as e:
-            _update_job(sb, job_id, {"error": f"GSC auth failed: {e}"})
+    if settings.get("use_gsc"):
+        if not gsc_credentials:
+            _update_job(sb, job_id, user_id, {"error": _GSC_UNAVAILABLE_ERROR})
+        else:
+            try:
+                gsc_client = get_gsc_client(gsc_credentials)
+            except RefreshError:
+                if gsc_credentials.get("method") == "google_oauth":
+                    _update_job(sb, job_id, user_id, {"error": _GSC_RECONNECT_ERROR})
+                    ciphertext = gsc_credentials.get("refresh_token_ciphertext")
+                    if ciphertext:
+                        try:
+                            mark_gsc_reconnect_required(sb, user_id, ciphertext)
+                        except Exception:
+                            pass
+                else:
+                    _update_job(sb, job_id, user_id, {"error": _GSC_UNAVAILABLE_ERROR})
+            except Exception:
+                _update_job(sb, job_id, user_id, {"error": _GSC_UNAVAILABLE_ERROR})
 
     branded_terms = [b.strip() for b in settings.get("brand_name", "").split() if b.strip()]
     full_brand_name = settings.get("full_brand_name", "").strip()
@@ -637,13 +666,14 @@ def _process_job(job_id: str, rows: list, settings: dict, sa_info: dict, brand_p
     for idx, row in enumerate(rows):
         url = row.get("url", "")
         try:
-            _update_job(sb, job_id, {"current_step": f"Row {idx+1}/{total}: starting — {url}"})
+            _update_job(sb, job_id, user_id, {"current_step": f"Row {idx+1}/{total}: starting — {url}"})
             result = _process_single_row(
                 row=row,
                 settings=settings,
                 gsc_client=gsc_client,
                 branded_terms=branded_terms,
                 used_primaries=used_primaries,
+                user_id=user_id,
                 sb=sb,
                 job_id=job_id,
                 row_num=idx + 1,
@@ -653,17 +683,21 @@ def _process_job(job_id: str, rows: list, settings: dict, sa_info: dict, brand_p
             results.append(result)
         except Exception:
             results.append({
-                **_empty_result(url, status="error", error=traceback.format_exc(limit=3)),
+                **_empty_result(
+                    url,
+                    status="error",
+                    error="Row processing failed. Please try again.",
+                ),
                 "scrape_status": "error",
             })
 
-        _update_job(sb, job_id, {
+        _update_job(sb, job_id, user_id, {
             "completed_rows": idx + 1,
             "results": results,
         })
 
-        if _is_cancelled(sb, job_id):
-            _update_job(sb, job_id, {
+        if _is_cancelled(sb, job_id, user_id):
+            _update_job(sb, job_id, user_id, {
                 "status": "cancelled",
                 "current_step": f"Cancelled after {idx + 1}/{total} rows.",
                 "failed_rows": sum(1 for r in results if r.get("error") or r.get("status") == "error"),
@@ -673,8 +707,8 @@ def _process_job(job_id: str, rows: list, settings: dict, sa_info: dict, brand_p
         if idx < len(rows) - 1:
             time.sleep(delay)
 
-    if _is_cancelled(sb, job_id):
-        _update_job(sb, job_id, {
+    if _is_cancelled(sb, job_id, user_id):
+        _update_job(sb, job_id, user_id, {
             "status": "cancelled",
             "current_step": "Cancelled.",
             "failed_rows": sum(1 for r in results if r.get("error") or r.get("status") == "error"),
@@ -682,7 +716,7 @@ def _process_job(job_id: str, rows: list, settings: dict, sa_info: dict, brand_p
         })
         return
 
-    _update_job(sb, job_id, {
+    _update_job(sb, job_id, user_id, {
         "status": "complete",
         "current_step": "Done.",
         "completed_rows": len(results),
@@ -691,7 +725,7 @@ def _process_job(job_id: str, rows: list, settings: dict, sa_info: dict, brand_p
     })
 
 
-def _update_job(sb, job_id: str, data: dict):
+def _update_job(sb, job_id: str, user_id: str, data: dict):
     try:
         update_data = {**data, "updated_at": "now()"}
         if "current_step" in data and data["current_step"]:
@@ -701,13 +735,13 @@ def _update_job(sb, job_id: str, data: dict):
                 "msg": data["current_step"],
             }
             try:
-                res = sb.table("jobs").select("logs").eq("id", job_id).execute()
+                res = sb.table("jobs").select("logs").eq("id", job_id).eq("user_id", user_id).execute()
                 current_logs = (res.data[0].get("logs") or []) if res.data else []
                 current_logs.append(log_entry)
                 update_data["logs"] = current_logs
             except Exception:
                 pass
-        sb.table("jobs").update(update_data).eq("id", job_id).execute()
+        sb.table("jobs").update(update_data).eq("id", job_id).eq("user_id", user_id).execute()
     except Exception:
         pass
 
@@ -723,16 +757,21 @@ def run_intro_job(
     sb = get_supabase()
     enforce_job_start(sb, user.id, "intro", len(request.rows), 100)
     enforce_rate_limit(sb, user.id, "intro", "job-create", 10)
-    runtime_settings = hydrate_job_settings(sb, user.id, request.settings.model_dump())
-    saved_credentials = load_user_credentials(sb, user.id)
+    try:
+        runtime_settings = hydrate_job_settings(sb, user.id, request.settings.model_dump())
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="Saved credentials are temporarily unavailable. Please try again.",
+        ) from None
     if not runtime_settings.get("api_key") or not runtime_settings.get("dfs_password"):
         raise HTTPException(status_code=400, detail="Saved provider credentials are incomplete. Update Settings and try again.")
 
-    sa_info = None
+    gsc_credentials = None
     brand_profile = {}
     try:
         if request.settings.use_gsc:
-            sa_info = saved_credentials.get("gsc_service_account")
+            gsc_credentials = runtime_settings.get("_gsc_credentials")
     except Exception:
         pass
 
@@ -770,8 +809,9 @@ def run_intro_job(
         job_id=job_id,
         rows=[r.model_dump() for r in request.rows],
         settings=runtime_settings,
-        sa_info=sa_info,
+        gsc_credentials=gsc_credentials,
         brand_profile=brand_profile,
+        user_id=user.id,
     )
 
     return {"job_id": job_id, "status": "running"}
