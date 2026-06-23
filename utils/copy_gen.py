@@ -109,7 +109,7 @@ SCRAPED CONTEXT GUARDRAIL:
 
 DEFAULT_MODELS = {
     "Claude": "claude-sonnet-4-6",
-    "OpenAI": "gpt-4o-mini",
+    "OpenAI": "gpt-5.5",
     "Gemini (free)": "gemini-2.0-flash",
     "Mistral (free tier)": "mistral-small-latest",
     "Groq (free tier)": "llama3-70b-8192",
@@ -130,9 +130,15 @@ def _call_claude(api_key: str, prompt: str, max_tokens: int = 1000, model: str =
 def _call_openai(api_key: str, prompt: str, max_tokens: int = 1000, model: str = None) -> str:
     from openai import OpenAI
     client = OpenAI(api_key=api_key)
+    resolved_model = model or DEFAULT_MODELS["OpenAI"]
+    token_limit = (
+        {"max_completion_tokens": max_tokens}
+        if resolved_model.startswith("gpt-5")
+        else {"max_tokens": max_tokens}
+    )
     resp = client.chat.completions.create(
-        model=model or DEFAULT_MODELS["OpenAI"],
-        max_tokens=max_tokens,
+        model=resolved_model,
+        **token_limit,
         messages=[{"role": "user", "content": prompt}],
     )
     return resp.choices[0].message.content.strip()

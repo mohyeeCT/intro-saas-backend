@@ -61,7 +61,48 @@ def _install_router_import_stubs():
 _install_router_import_stubs()
 
 from routers.intro import _relative_url_variants, get_ranked_keywords_for_page
+from utils.copy_gen import DEFAULT_MODELS
 from utils.copy_gen import _build_prompt
+
+
+class IntroOpenAIModelTests(unittest.TestCase):
+    def test_openai_default_uses_current_gpt_5_model(self):
+        self.assertEqual(DEFAULT_MODELS["OpenAI"], "gpt-5.5")
+        self.assertNotEqual(DEFAULT_MODELS["OpenAI"], "gpt-4o-mini")
+
+    def test_openai_gpt5_uses_max_completion_tokens(self):
+        from utils import copy_gen
+
+        captured = {}
+
+        class FakeCompletions:
+            def create(self, **kwargs):
+                captured.update(kwargs)
+                return types.SimpleNamespace(
+                    choices=[
+                        types.SimpleNamespace(message=types.SimpleNamespace(content="Intro copy"))
+                    ]
+                )
+
+        class FakeClient:
+            def __init__(self, api_key):
+                self.chat = types.SimpleNamespace(completions=FakeCompletions())
+
+        openai_stub = types.ModuleType("openai")
+        openai_stub.OpenAI = FakeClient
+        original_openai = sys.modules.get("openai")
+        sys.modules["openai"] = openai_stub
+        try:
+            copy_gen._call_openai("key", "prompt", max_tokens=123, model="gpt-5.5")
+        finally:
+            if original_openai is None:
+                sys.modules.pop("openai", None)
+            else:
+                sys.modules["openai"] = original_openai
+
+        self.assertEqual(captured["model"], "gpt-5.5")
+        self.assertEqual(captured["max_completion_tokens"], 123)
+        self.assertNotIn("max_tokens", captured)
 
 
 class IntroPromptGuardrailTests(unittest.TestCase):
