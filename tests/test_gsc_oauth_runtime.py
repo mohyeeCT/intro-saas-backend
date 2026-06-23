@@ -701,6 +701,7 @@ class RuntimePathTests(unittest.TestCase):
                 intro._process_job("job-1", [{"url": "https://example.com/page"}], _runtime_settings(envelope), envelope, user_id="user-1")
                 get_client.assert_called_once_with(envelope)
                 self.assertEqual(process.call_args.kwargs["gsc_client"], "client")
+                self.assertEqual(process.call_args.kwargs["gsc_auth_method"], envelope["method"])
 
         for failure, expected in ((RefreshError("provider detail"), RECONNECT_ERROR), (RuntimeError("provider detail"), UNAVAILABLE_ERROR)):
             updates = []
@@ -720,6 +721,38 @@ class RuntimePathTests(unittest.TestCase):
             self.assertIn(("user-1", {"error": expected}), updates)
             if isinstance(failure, RefreshError):
                 mark.assert_called_once_with(ANY, "user-1", OAUTH["refresh_token_ciphertext"])
+
+    def test_single_row_result_includes_safe_gsc_auth_method_label(self):
+        selection = {
+            "primary": {"keyword": "manual", "volume": 100, "difficulty": 20},
+            "supporting": [],
+            "cluster_source": "manual",
+            "runner_up": None,
+        }
+        settings = {
+            **_runtime_settings(),
+            "dfs_login": "login",
+            "scrape_pages": False,
+        }
+        with (
+            patch.object(intro, "get_ranked_keywords_for_page", return_value=[]),
+            patch.object(intro, "get_keyword_overview", return_value={}),
+            patch.object(intro, "get_keyword_difficulty", return_value={}),
+            patch.object(intro, "select_intro_keywords", return_value=selection),
+            patch.object(intro, "generate_intro", return_value="Generated intro copy."),
+        ):
+            result = intro._process_single_row(
+                row={"url": "https://example.com/page", "keyword": "manual"},
+                settings=settings,
+                gsc_client=None,
+                gsc_auth_method="google_oauth",
+                branded_terms=[],
+                used_primaries=set(),
+                user_id="user-1",
+            )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["gsc_auth_method"], "google_oauth")
 
     def test_rerun_client_handles_missing_refresh_generic_and_exact_error_clear(self):
         cases = [

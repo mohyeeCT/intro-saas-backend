@@ -20,6 +20,7 @@ router = APIRouter()
 
 _GSC_RECONNECT_ERROR = "Google Search Console reconnect required."
 _GSC_UNAVAILABLE_ERROR = "Selected Google Search Console connection unavailable."
+_GSC_METHOD_LABELS = {"google_oauth", "service_account", "disabled", "unavailable"}
 
 _RATE_LIMITS = {
     "Claude": 0.5,
@@ -28,6 +29,15 @@ _RATE_LIMITS = {
     "Mistral (free tier)": 2.0,
     "Groq (free tier)": 2.0,
 }
+
+
+def _safe_gsc_auth_method(settings: dict, gsc_credentials: dict | None, gsc_client=None) -> str:
+    if not settings.get("use_gsc"):
+        return "disabled"
+    if not gsc_credentials or not gsc_client:
+        return "unavailable"
+    method = gsc_credentials.get("method")
+    return method if method in _GSC_METHOD_LABELS else "unavailable"
 
 
 # ── DFS ranked keywords for a specific page ───────────────────────────────────
@@ -305,7 +315,12 @@ def h1_phrase_seeds(h1: str) -> list:
 
 # ── Empty result template ─────────────────────────────────────────────────────
 
-def _empty_result(url: str, status: str = "error", error: str = None) -> dict:
+def _empty_result(
+    url: str,
+    status: str = "error",
+    error: str = None,
+    gsc_auth_method: str = "disabled",
+) -> dict:
     return {
         "url": url,
         "intro_copy": "",
@@ -314,6 +329,7 @@ def _empty_result(url: str, status: str = "error", error: str = None) -> dict:
         "word_count": 0,
         "cluster_source": "",
         "keyword_source": status,
+        "gsc_auth_method": gsc_auth_method,
         "scrape_status": "skipped",
         "runner_up": "",
         "primary_volume": 0,
@@ -337,6 +353,7 @@ def _process_single_row(
     row_num: int = 1,
     total_rows: int = 1,
     brand_profile: dict = None,
+    gsc_auth_method: str = "disabled",
 ) -> dict:
     def step(msg):
         if sb and job_id:
@@ -350,7 +367,7 @@ def _process_single_row(
 
     # 0. Validate URL
     if not url or not url.startswith("http"):
-        return _empty_result(url, status="skipped: invalid URL")
+        return _empty_result(url, status="skipped: invalid URL", gsc_auth_method=gsc_auth_method)
 
     # 1. Scrape page (optional)
     step("scraping page...")
@@ -517,7 +534,7 @@ def _process_single_row(
     if not primary_kw_data:
         step("✗ no keyword found after all sources — skipping AI call")
         return {
-            **_empty_result(url, status="skipped: no keyword found"),
+            **_empty_result(url, status="skipped: no keyword found", gsc_auth_method=gsc_auth_method),
             "cluster_source": cluster_source,
             "scrape_status": scrape_status,
         }
@@ -581,6 +598,7 @@ def _process_single_row(
             "runner_up": runner_up,
             "primary_volume": primary_kw_data.get("volume", 0),
             "primary_difficulty": primary_kw_data.get("difficulty", 50),
+            "gsc_auth_method": gsc_auth_method,
         }
 
     actual_word_count = len(intro_copy.split())
@@ -597,6 +615,7 @@ def _process_single_row(
         "word_count": actual_word_count,
         "cluster_source": cluster_source,
         "keyword_source": keyword_source_label,
+        "gsc_auth_method": gsc_auth_method,
         "scrape_status": scrape_status,
         "runner_up": runner_up,
         "primary_volume": primary_kw_data.get("volume", 0),
@@ -650,6 +669,9 @@ def _process_job(
                     _update_job(sb, job_id, user_id, {"error": _GSC_UNAVAILABLE_ERROR})
             except Exception:
                 _update_job(sb, job_id, user_id, {"error": _GSC_UNAVAILABLE_ERROR})
+    gsc_auth_method = _safe_gsc_auth_method(settings, gsc_credentials, gsc_client)
+    if settings.get("use_gsc"):
+        _update_job(sb, job_id, user_id, {"current_step": f"GSC auth method: {gsc_auth_method}"})
 
     branded_terms = [b.strip() for b in settings.get("brand_name", "").split() if b.strip()]
     full_brand_name = settings.get("full_brand_name", "").strip()
@@ -679,6 +701,7 @@ def _process_job(
                 row_num=idx + 1,
                 total_rows=total,
                 brand_profile=brand_profile,
+                gsc_auth_method=gsc_auth_method,
             )
             results.append(result)
         except Exception:
@@ -689,6 +712,7 @@ def _process_job(
                     error="Row processing failed. Please try again.",
                 ),
                 "scrape_status": "error",
+                "gsc_auth_method": gsc_auth_method,
             })
 
         _update_job(sb, job_id, user_id, {

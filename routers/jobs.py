@@ -266,7 +266,8 @@ def _rerun_single_row(job_id: str, row_index: int, rows: list, settings: dict, s
             except Exception:
                 pass
 
-        from routers.intro import _process_single_row, _update_job
+        from routers.intro import _process_single_row, _safe_gsc_auth_method, _update_job
+        gsc_auth_method = _safe_gsc_auth_method(settings, settings.get("_gsc_credentials"), gsc_client)
         result = _process_single_row(
             row=row,
             settings=settings_with_key,
@@ -279,6 +280,7 @@ def _rerun_single_row(job_id: str, row_index: int, rows: list, settings: dict, s
             row_num=row_index + 1,
             total_rows=len(rows),
             brand_profile=brand_profile,
+            gsc_auth_method=gsc_auth_method,
         )
 
         # Update just this row's result in the existing results array
@@ -370,7 +372,7 @@ def _rerun_multiple_rows(job_id: str, row_indices: list, rows: list, settings: d
         return
     _clear_credentials_runtime_error(sb, job_id, user_id)
     import re as _re
-    from routers.intro import _process_single_row, _update_job
+    from routers.intro import _process_single_row, _safe_gsc_auth_method, _update_job
     from utils.gsc import get_gsc_client
 
     # Fetch credentials from user_settings
@@ -389,6 +391,7 @@ def _rerun_multiple_rows(job_id: str, row_indices: list, rows: list, settings: d
             pass
 
     gsc_client = _get_runtime_gsc_client(settings, sb, user_id, job_id)
+    gsc_auth_method = _safe_gsc_auth_method(settings, settings.get("_gsc_credentials"), gsc_client)
 
     branded_terms = [b.strip() for b in settings.get("brand_name", "").split() if b.strip()]
     full_brand = settings.get("full_brand_name", "").strip()
@@ -430,6 +433,7 @@ def _rerun_multiple_rows(job_id: str, row_indices: list, rows: list, settings: d
                 row_num=row_index + 1,
                 total_rows=len(rows),
                 brand_profile=brand_profile,
+                gsc_auth_method=gsc_auth_method,
             )
             results[row_index] = result
         except Exception:
@@ -437,6 +441,7 @@ def _rerun_multiple_rows(job_id: str, row_indices: list, rows: list, settings: d
                 "url": rows[row_index].get("url", ""),
                 "error": "Row re-run failed. Please try again.",
                 "status": "error",
+                "gsc_auth_method": gsc_auth_method,
             }
 
     sb.table("jobs").update({
