@@ -12,7 +12,7 @@ from credentials import hydrate_job_settings, mark_gsc_reconnect_required, strip
 from models import RunJobRequest, JobSettings, JobRow
 from utils.copy_gen import generate_intro
 from utils.dfs import get_keyword_overview, get_keyword_difficulty, _auth_header, _raise_api_error, DFS_BASE
-from utils.gsc import get_gsc_client, get_top_queries_for_url
+from utils.gsc import GscOAuthConfigError, get_gsc_client, get_top_queries_for_url
 from utils.niches import get_niche_context
 from utils.scraper import scrape_page_context, is_ecommerce_collection_page
 
@@ -20,6 +20,7 @@ router = APIRouter()
 
 _GSC_RECONNECT_ERROR = "Google Search Console reconnect required."
 _GSC_UNAVAILABLE_ERROR = "Selected Google Search Console connection unavailable."
+_GSC_CONFIG_ERROR = "Google Search Console OAuth configuration missing."
 _GSC_METHOD_LABELS = {"google_oauth", "service_account", "disabled", "unavailable"}
 
 _RATE_LIMITS = {
@@ -656,6 +657,8 @@ def _process_job(
         else:
             try:
                 gsc_client = get_gsc_client(gsc_credentials)
+            except GscOAuthConfigError:
+                _update_job(sb, job_id, user_id, {"error": _GSC_CONFIG_ERROR})
             except RefreshError:
                 if gsc_credentials.get("method") == "google_oauth":
                     _update_job(sb, job_id, user_id, {"error": _GSC_RECONNECT_ERROR})
