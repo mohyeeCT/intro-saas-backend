@@ -47,30 +47,31 @@ _BIZ_CONTEXT = {
 _TEMPLATE_RULES = {
     "category": (
         "This is an ecommerce category page. The intro should orient the visitor to "
-        "the product range and its key benefits or use cases. Place the primary keyword "
-        "naturally in the first sentence. Do not describe a single product — describe "
+        "the product range and its key benefits or use cases. Represent the primary keyword "
+        "naturally in the opening paragraph. Do not describe a single product — describe "
         "the category. No CTA."
     ),
     "product": (
         "This is a product page. Lead with what the product does and who it is for. "
-        "The primary keyword should appear in the first sentence. One supporting keyword "
+        "Represent the primary keyword naturally in the opening paragraph. One supporting keyword "
         "should appear in a subsequent sentence. Keep it specific to this product."
     ),
     "service_lp": (
         "This is a service or landing page. The intro should establish what the service "
-        "does, who it is for, and why it matters. Primary keyword in the first sentence. "
+        "does, who it is for, and why it matters. Represent the primary keyword naturally "
+        "in the opening paragraph. "
         "Supporting keywords woven naturally into subsequent sentences. "
         "Avoid generic opener phrases."
     ),
     "location": (
         "This is a location page. The intro should reference the location and the service "
-        "offered there. Primary keyword (likely a location-modified phrase) in the first "
-        "sentence. Keep it grounded in local context."
+        "offered there. Represent the primary keyword, likely a location-modified phrase, "
+        "naturally in the opening paragraph. Keep it grounded in local context."
     ),
     "blog": (
         "This is a blog or editorial page. The intro should draw the reader in with a "
-        "clear statement of what they will learn or gain. Primary keyword in the first "
-        "or second sentence. Engagement matters here more than on other templates. "
+        "clear statement of what they will learn or gain. Represent the primary keyword "
+        "naturally in the opening paragraph. Engagement matters here more than on other templates. "
         "No hard sell."
     ),
     "brand": (
@@ -249,12 +250,12 @@ def _build_prompt(
     if supporting_keywords:
         kw_list = "\n".join(f"- {kw}" for kw in supporting_keywords)
         kw_block = (
-            f"Primary keyword (must appear naturally in the first sentence): {primary_keyword}\n\n"
+            f"Primary keyword (represent naturally in the opening paragraph): {primary_keyword}\n\n"
             f"Supporting keywords (weave 1-2 of these naturally into the copy where they fit — "
             f"do not force all of them):\n{kw_list}"
         )
     else:
-        kw_block = f"Primary keyword (must appear naturally in the first sentence): {primary_keyword}"
+        kw_block = f"Primary keyword (represent naturally in the opening paragraph): {primary_keyword}"
 
     # Word and paragraph targets
     para_instruction = (
@@ -286,8 +287,11 @@ LENGTH AND FORMAT:
 Target word count is a guide, not a hard cap. Vary sentence length. Do not pad to hit the number.
 
 WRITING RULES:
-- Primary keyword must appear in the first sentence, used naturally
+- Represent the primary keyword naturally in the opening paragraph
+- You may adjust word order, add small connecting words, or use a close grammatical variation when the exact keyword phrase would sound awkward
+- Do not force the keyword at the beginning of the first sentence
 - Do not start with a generic opener ("Welcome to", "Are you looking for", "In today's world", "Whether you are")
+- Do not write phrases like "this page", "on this page", or "the page" in the generated copy. Refer directly to the service, category, product, topic, brand, or location instead
 - Do not use em dashes
 - Write in active voice
 - Every sentence must earn its place — no filler
@@ -298,7 +302,7 @@ WRITING RULES:
 ENGAGEMENT (secondary objective — 25% of quality signal):
 - The first sentence should give the reader a reason to keep reading
 - For blog and brand templates, opening hook matters more than other types
-- The final sentence can include a light forward-pointing phrase (what the page covers, what the reader will learn), but only if it fits naturally
+- The final sentence can include a light forward-pointing idea, but it should name the topic directly instead of saying "this page"
 
 {UNSUPPORTED_CLAIM_GUARDRAIL}
 

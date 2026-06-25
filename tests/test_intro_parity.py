@@ -40,6 +40,7 @@ def _install_router_import_stubs():
     sys.modules.setdefault("models", models_stub)
 
     gsc_stub = types.ModuleType("utils.gsc")
+    gsc_stub.GscOAuthConfigError = RuntimeError
     gsc_stub.get_gsc_client = lambda *args, **kwargs: None
     gsc_stub.get_top_queries_for_url = lambda *args, **kwargs: []
     sys.modules.setdefault("utils.gsc", gsc_stub)
@@ -128,6 +129,46 @@ class IntroPromptGuardrailTests(unittest.TestCase):
         self.assertIn("strategy signals only", prompt)
         self.assertIn("SCRAPED CONTEXT GUARDRAIL", prompt)
         self.assertIn("stock levels", prompt)
+
+    def test_prompt_bans_this_page_output_phrasing(self):
+        prompt = _build_prompt(
+            primary_keyword="SEO audit services",
+            supporting_keywords=[],
+            page_template="service_lp",
+            business_type="service",
+            brand_name="Example",
+            include_brand=False,
+            h1="SEO Audit Services",
+            word_count=80,
+            paragraph_count=1,
+            page_context="",
+            forbidden_phrases="",
+            brand_profile={},
+        )
+
+        self.assertIn("Do not write phrases like \"this page\", \"on this page\", or \"the page\"", prompt)
+        self.assertIn("Refer directly to the service, category, product, topic, brand, or location instead", prompt)
+
+    def test_prompt_allows_natural_keyword_variation_in_opening_paragraph(self):
+        prompt = _build_prompt(
+            primary_keyword="SEO audit services",
+            supporting_keywords=["technical SEO audit"],
+            page_template="service_lp",
+            business_type="service",
+            brand_name="Example",
+            include_brand=False,
+            h1="SEO Audit Services",
+            word_count=80,
+            paragraph_count=1,
+            page_context="",
+            forbidden_phrases="",
+            brand_profile={},
+        )
+
+        self.assertIn("Represent the primary keyword naturally in the opening paragraph", prompt)
+        self.assertIn("You may adjust word order, add small connecting words", prompt)
+        self.assertNotIn("must appear naturally in the first sentence", prompt)
+        self.assertNotIn("Primary keyword in the first sentence", prompt)
 
 
 class RankedKeywordUrlVariantTests(unittest.TestCase):
