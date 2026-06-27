@@ -256,13 +256,26 @@ def _build_prompt(
             "Do not copy, quote, or treat this as proof of this page's facts, policies, offers, or claims."
         )
 
+    hook_structure_block = ""
+    if page_template in ("blog", "brand"):
+        hook_structure_block = """
+BLOG AND BRAND HOOK STRUCTURE:
+Choose the hook structure that best fits the topic:
+1. Concrete outcome - start with what the reader will achieve.
+2. Specific fact - open with a precise, relevant data point.
+3. Direct assertion - make a clear, confident statement about the topic.
+4. Problem frame - name a specific tension the reader already feels.
+Make the chosen hook the first sentence, not preceded by a wind-up sentence.
+""".strip()
+
     # Supporting keywords block
     if supporting_keywords:
         kw_list = "\n".join(f"- {kw}" for kw in supporting_keywords)
         kw_block = (
             f"Primary keyword (represent naturally in the opening paragraph): {primary_keyword}\n\n"
-            f"Supporting keywords (weave 1-2 of these naturally into the copy where they fit — "
-            f"do not force all of them):\n{kw_list}"
+            f"Supporting keywords (weave up to 3 of these naturally into the copy where they fit. "
+            f"A keyword used awkwardly is worse than not using it at all. "
+            f"Quality of integration matters more than quantity):\n{kw_list}"
         )
     else:
         kw_block = f"Primary keyword (represent naturally in the opening paragraph): {primary_keyword}"
@@ -300,7 +313,7 @@ WRITING RULES:
 - Represent the primary keyword naturally in the opening paragraph
 - You may adjust word order, add small connecting words, or use a close grammatical variation when the exact keyword phrase would sound awkward
 - Do not force the keyword at the beginning of the first sentence
-- Do not start with a generic opener ("Welcome to", "Are you looking for", "In today's world", "Whether you are")
+- Do not start with a generic opener ("Welcome to", "Are you looking for", "In today's world", "Whether you are", "Finding the right", "When it comes to", "Choosing the right", "Looking for", "There are many", "It can be difficult to", "If you are searching for", "Whether you need", "In the world of")
 - Do not write phrases like "this page", "on this page", or "the page" in the generated copy. Refer directly to the service, category, product, topic, brand, or location instead
 - Do not use em dashes
 - Write in active voice
@@ -310,9 +323,11 @@ WRITING RULES:
 - Supporting keywords should read as if the writer chose them, not placed them for SEO
 
 ENGAGEMENT (secondary objective — 25% of quality signal):
-- The first sentence should give the reader a reason to keep reading
+- The first sentence must communicate the core topic, benefit, or value of the page. The reader should know what the page is about and why it matters to them after reading only the first sentence. The first sentence is not for warming up or establishing context; that is wasted space.
 - For blog and brand templates, opening hook matters more than other types
 - The final sentence can include a light forward-pointing idea, but it should name the topic directly instead of saying "this page"
+
+{hook_structure_block}
 
 {UNSUPPORTED_CLAIM_GUARDRAIL}
 

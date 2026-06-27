@@ -150,6 +150,104 @@ class IntroPromptGuardrailTests(unittest.TestCase):
         self.assertIn("Do not write phrases like \"this page\", \"on this page\", or \"the page\"", prompt)
         self.assertIn("Refer directly to the service, category, product, topic, brand, or location instead", prompt)
 
+    def test_prompt_blocks_common_generic_openers(self):
+        prompt = _build_prompt(
+            primary_keyword="SEO audit services",
+            supporting_keywords=[],
+            page_template="service_lp",
+            business_type="service",
+            brand_name="Example",
+            include_brand=False,
+            h1="SEO Audit Services",
+            word_count=80,
+            paragraph_count=1,
+            page_context="",
+            forbidden_phrases="",
+            brand_profile={},
+        )
+
+        blocked_openers = [
+            "Welcome to",
+            "Are you looking for",
+            "In today's world",
+            "Whether you are",
+            "Finding the right",
+            "When it comes to",
+            "Choosing the right",
+            "Looking for",
+            "There are many",
+            "It can be difficult to",
+            "If you are searching for",
+            "Whether you need",
+            "In the world of",
+        ]
+        for opener in blocked_openers:
+            self.assertIn(opener, prompt)
+
+    def test_prompt_requires_substantive_first_sentence(self):
+        prompt = _build_prompt(
+            primary_keyword="SEO audit services",
+            supporting_keywords=[],
+            page_template="service_lp",
+            business_type="service",
+            brand_name="Example",
+            include_brand=False,
+            h1="SEO Audit Services",
+            word_count=80,
+            paragraph_count=1,
+            page_context="",
+            forbidden_phrases="",
+            brand_profile={},
+        )
+
+        self.assertIn("The first sentence must communicate the core topic, benefit, or value of the page", prompt)
+        self.assertIn("why it matters to them after reading only the first sentence", prompt)
+        self.assertIn("not for warming up or establishing context", prompt)
+
+    def test_blog_and_brand_prompts_include_hook_structures(self):
+        for template in ("blog", "brand"):
+            prompt = _build_prompt(
+                primary_keyword="SEO audit services",
+                supporting_keywords=[],
+                page_template=template,
+                business_type="service",
+                brand_name="Example",
+                include_brand=False,
+                h1="SEO Audit Services",
+                word_count=80,
+                paragraph_count=1,
+                page_context="",
+                forbidden_phrases="",
+                brand_profile={},
+            )
+
+            self.assertIn("BLOG AND BRAND HOOK STRUCTURE", prompt)
+            self.assertIn("Concrete outcome", prompt)
+            self.assertIn("Specific fact", prompt)
+            self.assertIn("Direct assertion", prompt)
+            self.assertIn("Problem frame", prompt)
+            self.assertIn("Make the chosen hook the first sentence", prompt)
+            self.assertIn("not preceded by a wind-up sentence", prompt)
+
+    def test_non_editorial_prompts_do_not_include_hook_structures(self):
+        prompt = _build_prompt(
+            primary_keyword="SEO audit services",
+            supporting_keywords=[],
+            page_template="service_lp",
+            business_type="service",
+            brand_name="Example",
+            include_brand=False,
+            h1="SEO Audit Services",
+            word_count=80,
+            paragraph_count=1,
+            page_context="",
+            forbidden_phrases="",
+            brand_profile={},
+        )
+
+        self.assertNotIn("BLOG AND BRAND HOOK STRUCTURE", prompt)
+        self.assertNotIn("Concrete outcome", prompt)
+
     def test_prompt_allows_natural_keyword_variation_in_opening_paragraph(self):
         prompt = _build_prompt(
             primary_keyword="SEO audit services",
@@ -170,6 +268,32 @@ class IntroPromptGuardrailTests(unittest.TestCase):
         self.assertIn("You may adjust word order, add small connecting words", prompt)
         self.assertNotIn("must appear naturally in the first sentence", prompt)
         self.assertNotIn("Primary keyword in the first sentence", prompt)
+
+    def test_prompt_allows_up_to_three_supporting_keywords_when_natural(self):
+        prompt = _build_prompt(
+            primary_keyword="SEO audit services",
+            supporting_keywords=[
+                "technical SEO audit",
+                "ecommerce SEO audit",
+                "site audit services",
+                "SEO health check",
+            ],
+            page_template="service_lp",
+            business_type="service",
+            brand_name="Example",
+            include_brand=False,
+            h1="SEO Audit Services",
+            word_count=80,
+            paragraph_count=1,
+            page_context="",
+            forbidden_phrases="",
+            brand_profile={},
+        )
+
+        self.assertIn("weave up to 3 of these naturally into the copy where they fit", prompt)
+        self.assertIn("A keyword used awkwardly is worse than not using it at all", prompt)
+        self.assertIn("Quality of integration matters more than quantity", prompt)
+        self.assertNotIn("weave 1-2 of these naturally", prompt)
 
     def test_prompt_uses_ai_overview_as_framing_signal_only(self):
         prompt = _build_prompt(
