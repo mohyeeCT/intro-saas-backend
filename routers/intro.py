@@ -11,7 +11,7 @@ from abuse_protection import enforce_job_start, enforce_rate_limit, execute_acti
 from credentials import hydrate_job_settings, mark_gsc_reconnect_required, strip_secret_fields
 from models import RunJobRequest, JobSettings, JobRow
 from utils.copy_gen import generate_intro
-from utils.dfs import get_keyword_overview, get_keyword_difficulty, _auth_header, _raise_api_error, DFS_BASE
+from utils.dfs import get_keyword_overview, get_keyword_difficulty, get_ai_overview_summary, _auth_header, _raise_api_error, DFS_BASE
 from utils.gsc import GscOAuthConfigError, get_gsc_client, get_top_queries_for_url
 from utils.niches import get_niche_context
 from utils.scraper import scrape_page_context, is_ecommerce_collection_page
@@ -544,6 +544,27 @@ def _process_single_row(
     supporting_kws = [c["keyword"] for c in (selection.get("supporting") or [])]
     runner_up = runner_up_data["keyword"] if runner_up_data else ""
 
+    ai_overview_summary = ""
+    if settings.get("include_ai_overview_context", True):
+        step("fetching AI Overview context...")
+        try:
+            ai_overview_summary = get_ai_overview_summary(
+                settings["dfs_login"],
+                settings["dfs_password"],
+                primary_keyword,
+                settings.get("location_code", 2840),
+                load_async_ai_overview=settings.get("load_async_ai_overview", True),
+            )
+            if ai_overview_summary:
+                step(f"AI Overview context found ({len(ai_overview_summary)} chars)")
+            else:
+                step("AI Overview context not found")
+        except Exception as serp_error:
+            ai_overview_summary = ""
+            step("AI Overview context failed - " + str(serp_error)[:120])
+    else:
+        step("AI Overview context skipped (disabled)")
+
     # Build keyword_source label
     if not keyword_source_label:
         has_gsc = bool(gsc_queries)
@@ -583,6 +604,7 @@ def _process_single_row(
             ),
             model=settings.get("model"),
             brand_profile=brand_profile or {},
+            ai_overview_summary=ai_overview_summary,
         )
     except Exception:
         return {

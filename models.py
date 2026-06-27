@@ -46,6 +46,7 @@ class JobSettings(BaseModel):
     dfs_password: str = ""
     location_code: int = 2840
     min_volume: int = 10
+    include_ai_overview_context: bool = True
 
     # Scraping
     jina_api_key: str = ""

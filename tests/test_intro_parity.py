@@ -61,6 +61,7 @@ def _install_router_import_stubs():
 
 _install_router_import_stubs()
 
+import routers.intro as intro
 from routers.intro import _relative_url_variants, get_ranked_keywords_for_page
 from utils.copy_gen import DEFAULT_MODELS
 from utils.copy_gen import _build_prompt
@@ -169,6 +170,117 @@ class IntroPromptGuardrailTests(unittest.TestCase):
         self.assertIn("You may adjust word order, add small connecting words", prompt)
         self.assertNotIn("must appear naturally in the first sentence", prompt)
         self.assertNotIn("Primary keyword in the first sentence", prompt)
+
+    def test_prompt_uses_ai_overview_as_framing_signal_only(self):
+        prompt = _build_prompt(
+            primary_keyword="SEO audit services",
+            supporting_keywords=[],
+            page_template="service_lp",
+            business_type="service",
+            brand_name="Example",
+            include_brand=False,
+            h1="SEO Audit Services",
+            word_count=80,
+            paragraph_count=1,
+            page_context="The page describes technical SEO audits for ecommerce teams.",
+            forbidden_phrases="",
+            brand_profile={},
+            ai_overview_summary="Search results emphasize crawlability, indexation, and prioritizing revenue-impacting fixes.",
+        )
+
+        self.assertIn("AI OVERVIEW FRAMING SIGNAL", prompt)
+        self.assertIn("crawlability, indexation", prompt)
+        self.assertIn("Do not copy, quote, or treat this as proof", prompt)
+
+
+class IntroSerpContextTests(unittest.TestCase):
+    def _settings(self, include_ai_overview_context=True):
+        return {
+            "provider": "Claude",
+            "api_key": "api-key",
+            "dfs_login": "dfs-login",
+            "dfs_password": "dfs-password",
+            "location_code": 2840,
+            "min_volume": 10,
+            "scrape_pages": False,
+            "include_ai_overview_context": include_ai_overview_context,
+            "page_template": "service_lp",
+            "business_type": "service",
+            "brand_name": "Example",
+            "include_brand": False,
+            "word_count": 80,
+            "paragraph_count": 1,
+        }
+
+    def _selection(self):
+        return {
+            "primary": {"keyword": "SEO audit services", "volume": 100, "difficulty": 30},
+            "supporting": [{"keyword": "technical SEO audit"}],
+            "runner_up": None,
+            "cluster_source": "manual",
+        }
+
+    def test_enabled_ai_overview_summary_is_passed_to_generator(self):
+        with patch.object(intro, "get_ranked_keywords_for_page", return_value=[]), \
+             patch.object(intro, "get_keyword_overview", return_value={}), \
+             patch.object(intro, "get_keyword_difficulty", return_value={}), \
+             patch.object(intro, "select_intro_keywords", return_value=self._selection()), \
+             patch.object(intro, "get_ai_overview_summary", return_value="AIO summary for buyer intent.") as mock_aio, \
+             patch.object(intro, "generate_intro", return_value="Generated intro copy.") as mock_generate:
+
+            result = intro._process_single_row(
+                row={"url": "https://example.com/services/seo-audit", "keyword": "SEO audit services", "h1": "SEO Audit Services"},
+                settings=self._settings(include_ai_overview_context=True),
+                gsc_client=None,
+                branded_terms=[],
+                used_primaries=set(),
+                user_id="user-1",
+            )
+
+        self.assertEqual(result["status"], "ok")
+        mock_aio.assert_called_once()
+        self.assertEqual(mock_generate.call_args.kwargs["ai_overview_summary"], "AIO summary for buyer intent.")
+
+    def test_ai_overview_failure_does_not_block_generation(self):
+        with patch.object(intro, "get_ranked_keywords_for_page", return_value=[]), \
+             patch.object(intro, "get_keyword_overview", return_value={}), \
+             patch.object(intro, "get_keyword_difficulty", return_value={}), \
+             patch.object(intro, "select_intro_keywords", return_value=self._selection()), \
+             patch.object(intro, "get_ai_overview_summary", side_effect=RuntimeError("timeout")), \
+             patch.object(intro, "generate_intro", return_value="Generated intro copy.") as mock_generate:
+
+            result = intro._process_single_row(
+                row={"url": "https://example.com/services/seo-audit", "keyword": "SEO audit services", "h1": "SEO Audit Services"},
+                settings=self._settings(include_ai_overview_context=True),
+                gsc_client=None,
+                branded_terms=[],
+                used_primaries=set(),
+                user_id="user-1",
+            )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(mock_generate.call_args.kwargs["ai_overview_summary"], "")
+
+    def test_disabled_ai_overview_context_skips_serp_call(self):
+        with patch.object(intro, "get_ranked_keywords_for_page", return_value=[]), \
+             patch.object(intro, "get_keyword_overview", return_value={}), \
+             patch.object(intro, "get_keyword_difficulty", return_value={}), \
+             patch.object(intro, "select_intro_keywords", return_value=self._selection()), \
+             patch.object(intro, "get_ai_overview_summary") as mock_aio, \
+             patch.object(intro, "generate_intro", return_value="Generated intro copy.") as mock_generate:
+
+            result = intro._process_single_row(
+                row={"url": "https://example.com/services/seo-audit", "keyword": "SEO audit services", "h1": "SEO Audit Services"},
+                settings=self._settings(include_ai_overview_context=False),
+                gsc_client=None,
+                branded_terms=[],
+                used_primaries=set(),
+                user_id="user-1",
+            )
+
+        self.assertEqual(result["status"], "ok")
+        mock_aio.assert_not_called()
+        self.assertEqual(mock_generate.call_args.kwargs["ai_overview_summary"], "")
 
 
 class RankedKeywordUrlVariantTests(unittest.TestCase):

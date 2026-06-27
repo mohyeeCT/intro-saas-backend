@@ -200,6 +200,7 @@ def _build_prompt(
     page_context: str,
     forbidden_phrases: str,
     brand_profile: dict = None,
+    ai_overview_summary: str = "",
 ) -> str:
     biz_ctx = _BIZ_CONTEXT.get(business_type, _BIZ_CONTEXT["general"])
     template_rules = _TEMPLATE_RULES.get(page_template, _TEMPLATE_RULES["service_lp"])
@@ -244,6 +245,15 @@ def _build_prompt(
         context_block = (
             "PAGE CONTENT (use this to understand what the page is about and write accurately to it):\n"
             f"---\n{page_context}\n---"
+        )
+
+    aio_block = ""
+    if ai_overview_summary:
+        aio_block = (
+            "AI OVERVIEW FRAMING SIGNAL (search intent context only):\n"
+            f"---\n{ai_overview_summary}\n---\n"
+            "Use this only to understand likely search intent and authoritative subtopics. "
+            "Do not copy, quote, or treat this as proof of this page's facts, policies, offers, or claims."
         )
 
     # Supporting keywords block
@@ -308,6 +318,8 @@ ENGAGEMENT (secondary objective — 25% of quality signal):
 
 {SCRAPED_CONTEXT_GUARDRAIL}
 
+{aio_block}
+
 {context_block}
 
 Return only the intro copy. No heading, no label, no surrounding quotes."""
@@ -331,6 +343,7 @@ def generate_intro(
     forbidden_phrases: str,
     model: str = None,
     brand_profile: dict = None,
+    ai_overview_summary: str = "",
 ) -> str:
     fn = _PROVIDER_FN.get(provider)
     if not fn:
@@ -350,6 +363,7 @@ def generate_intro(
         page_context=page_context,
         forbidden_phrases=forbidden_phrases,
         brand_profile=brand_profile or {},
+        ai_overview_summary=ai_overview_summary,
     )
 
     max_tokens = max(512, word_count * 8)

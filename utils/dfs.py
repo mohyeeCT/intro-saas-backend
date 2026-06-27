@@ -1,5 +1,6 @@
 import requests
 import base64
+import re
 
 DFS_BASE = "https://api.dataforseo.com/v3"
 
@@ -94,5 +95,107 @@ def get_keyword_difficulty(login: str, password: str, keywords: list, location_c
                         "difficulty": kd if kd is not None else 50
                     }
         return result
+    except Exception as e:
+        raise RuntimeError(_friendly_error(e)) from e
+
+
+def _extract_ai_overview_text(item: dict) -> str:
+    if not item:
+        return ""
+
+    blocks = item.get("items") or []
+    if blocks:
+        parts = []
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            text = (block.get("text") or block.get("content") or "").strip()
+            if text:
+                parts.append(text)
+        if parts:
+            return "\n\n".join(parts)
+
+    flat = (item.get("text") or "").strip()
+    if flat:
+        return flat
+
+    markdown = (item.get("markdown") or "").strip()
+    if markdown:
+        markdown = re.sub(r"!\[([^\]]*)\]\((https?://[^\)]+)\)", r"\1", markdown)
+        markdown = re.sub(r"\[([^\]]+)\]\((https?://[^\)]+)\)", r"\1", markdown)
+        markdown = re.sub(r"https?://\S+", "", markdown)
+        markdown = re.sub(r"\*+", "", markdown)
+        markdown = re.sub(r"#+\s*", "", markdown)
+        markdown = re.sub(r"\s+", " ", markdown).strip()
+        if markdown:
+            return markdown
+
+    return ""
+
+
+def _trim_text(text: str, max_chars: int = 900) -> str:
+    text = re.sub(r"\s+", " ", (text or "")).strip()
+    if len(text) <= max_chars:
+        return text
+
+    trimmed = text[:max_chars].rstrip()
+    sentence_end = max(trimmed.rfind("."), trimmed.rfind("!"), trimmed.rfind("?"))
+    if sentence_end >= max_chars * 0.55:
+        return trimmed[:sentence_end + 1].strip()
+
+    word_end = trimmed.rfind(" ")
+    if word_end > 0:
+        return trimmed[:word_end].rstrip() + "..."
+    return trimmed + "..."
+
+
+def get_ai_overview_summary(
+    login: str,
+    password: str,
+    keyword: str,
+    location_code: int = 2840,
+    load_async_ai_overview: bool = True,
+    max_chars: int = 900,
+) -> str:
+    """Return a concise AI Overview text signal for intro framing.
+
+    This intentionally ignores PAA and organic results; Intro only needs a
+    lightweight search-intent signal, not FAQ-style question research.
+    """
+    if not keyword:
+        return ""
+
+    payload = [{
+        "keyword": keyword,
+        "location_code": location_code,
+        "language_code": "en",
+        "depth": 10,
+        "device": "desktop",
+        "os": "macos",
+        "load_async_ai_overview": load_async_ai_overview,
+    }]
+
+    try:
+        response = requests.post(
+            f"{DFS_BASE}/serp/google/organic/live/advanced",
+            headers=_auth_header(login, password),
+            json=payload,
+            timeout=45,
+        )
+        response.raise_for_status()
+        data = response.json()
+        _raise_api_error(data)
+
+        parts = []
+        for task in data.get("tasks", []):
+            for result_block in (task.get("result") or []):
+                for item in (result_block.get("items") or []):
+                    if item.get("type") not in ("ai_overview", "asynchronous_ai_overview"):
+                        continue
+                    text = _extract_ai_overview_text(item)
+                    if text:
+                        parts.append(text)
+
+        return _trim_text("\n\n".join(parts), max_chars=max_chars)
     except Exception as e:
         raise RuntimeError(_friendly_error(e)) from e
