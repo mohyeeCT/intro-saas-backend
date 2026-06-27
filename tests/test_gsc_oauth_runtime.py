@@ -753,7 +753,15 @@ class RuntimePathTests(unittest.TestCase):
             patch.object(intro, "get_keyword_overview", return_value={}),
             patch.object(intro, "get_keyword_difficulty", return_value={}),
             patch.object(intro, "select_intro_keywords", return_value=selection),
-            patch.object(intro, "generate_intro", return_value="Generated intro copy."),
+            patch.object(
+                intro,
+                "generate_intro",
+                return_value=(
+                    "Manual page support helps teams publish focused intro copy that explains the page value, "
+                    "matches search intent, and gives visitors a clear reason to keep reading. The result stays "
+                    "specific to the URL while preserving the selected Search Console authentication label."
+                ),
+            ),
         ):
             result = intro._process_single_row(
                 row={"url": "https://example.com/page", "keyword": "manual"},
