@@ -341,6 +341,71 @@ def _empty_result(
 
 
 # ── Single row processor ──────────────────────────────────────────────────────
+def _count_intro_paragraphs(text: str) -> int:
+    if not (text or "").strip():
+        return 0
+    return len([p for p in re.split(r"\n\s*\n+", text.strip()) if p.strip()])
+
+
+_GENERIC_INTRO_OPENERS = (
+    "Welcome to",
+    "Are you looking for",
+    "In today's world",
+    "Whether you are",
+    "Finding the right",
+    "When it comes to",
+    "Choosing the right",
+    "Looking for",
+    "There are many",
+    "It can be difficult to",
+    "If you are searching for",
+    "Whether you need",
+    "In the world of",
+)
+
+
+def _normalise_phrase(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").strip().lower())
+
+
+def _forbidden_phrases(settings: dict, brand_profile: dict | None = None) -> list:
+    phrases = []
+    raw = settings.get("forbidden_phrases", "")
+    phrases.extend(p.strip() for p in raw.splitlines() if p.strip())
+    words_to_avoid = (brand_profile or {}).get("words_to_avoid", "")
+    phrases.extend(p.strip() for p in words_to_avoid.splitlines() if p.strip())
+    return list(dict.fromkeys(phrases))
+
+
+def _intro_qa_flags(intro_copy: str, target_paragraphs: int, forbidden_phrases: list) -> list:
+    flags = []
+    text = intro_copy or ""
+    if not text.strip():
+        flags.append("Missing intro copy.")
+        return flags
+
+    actual_words = len(text.split())
+    if actual_words < 40:
+        flags.append("Intro is very short.")
+
+    actual_paragraphs = _count_intro_paragraphs(text)
+    if actual_paragraphs != target_paragraphs:
+        flags.append(f"Paragraph count mismatch: expected {target_paragraphs}, got {actual_paragraphs}.")
+
+    normalised_text = _normalise_phrase(text)
+    for phrase in forbidden_phrases:
+        if _normalise_phrase(phrase) and _normalise_phrase(phrase) in normalised_text:
+            flags.append(f'Forbidden phrase found: "{phrase}".')
+
+    first_sentence = re.split(r"[.!?]\s+", text.strip(), maxsplit=1)[0]
+    normalised_first = _normalise_phrase(first_sentence)
+    for opener in _GENERIC_INTRO_OPENERS:
+        if normalised_first.startswith(_normalise_phrase(opener)):
+            flags.append(f'Generic opener found: "{opener}".')
+            break
+
+    return flags
+
 
 def _process_single_row(
     row: dict,
@@ -625,6 +690,14 @@ def _process_single_row(
         }
 
     actual_word_count = len(intro_copy.split())
+    qa_flags = _intro_qa_flags(
+        intro_copy,
+        settings.get("paragraph_count", 1),
+        _forbidden_phrases(settings, brand_profile),
+    )
+    row_status = "review" if qa_flags else "ok"
+    if qa_flags:
+        step(f"intro generated but flagged for review - {'; '.join(qa_flags)[:120]}")
     step(f"✓ intro generated — {actual_word_count} words")
 
     # Track primary so next rows skip it
@@ -643,7 +716,8 @@ def _process_single_row(
         "runner_up": runner_up,
         "primary_volume": primary_kw_data.get("volume", 0),
         "primary_difficulty": primary_kw_data.get("difficulty", 50),
-        "status": "ok",
+        "status": row_status,
+        "qa_flags": qa_flags,
         "error": None,
     }
 

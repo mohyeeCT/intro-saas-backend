@@ -344,13 +344,16 @@ class IntroSerpContextTests(unittest.TestCase):
             "cluster_source": "manual",
         }
 
+    def _valid_intro(self):
+        return " ".join(["word"] * 80)
+
     def test_enabled_ai_overview_summary_is_passed_to_generator(self):
         with patch.object(intro, "get_ranked_keywords_for_page", return_value=[]), \
              patch.object(intro, "get_keyword_overview", return_value={}), \
              patch.object(intro, "get_keyword_difficulty", return_value={}), \
              patch.object(intro, "select_intro_keywords", return_value=self._selection()), \
              patch.object(intro, "get_ai_overview_summary", return_value="AIO summary for buyer intent.") as mock_aio, \
-             patch.object(intro, "generate_intro", return_value="Generated intro copy.") as mock_generate:
+             patch.object(intro, "generate_intro", return_value=self._valid_intro()) as mock_generate:
 
             result = intro._process_single_row(
                 row={"url": "https://example.com/services/seo-audit", "keyword": "SEO audit services", "h1": "SEO Audit Services"},
@@ -371,7 +374,7 @@ class IntroSerpContextTests(unittest.TestCase):
              patch.object(intro, "get_keyword_difficulty", return_value={}), \
              patch.object(intro, "select_intro_keywords", return_value=self._selection()), \
              patch.object(intro, "get_ai_overview_summary", side_effect=RuntimeError("timeout")), \
-             patch.object(intro, "generate_intro", return_value="Generated intro copy.") as mock_generate:
+             patch.object(intro, "generate_intro", return_value=self._valid_intro()) as mock_generate:
 
             result = intro._process_single_row(
                 row={"url": "https://example.com/services/seo-audit", "keyword": "SEO audit services", "h1": "SEO Audit Services"},
@@ -391,7 +394,7 @@ class IntroSerpContextTests(unittest.TestCase):
              patch.object(intro, "get_keyword_difficulty", return_value={}), \
              patch.object(intro, "select_intro_keywords", return_value=self._selection()), \
              patch.object(intro, "get_ai_overview_summary") as mock_aio, \
-             patch.object(intro, "generate_intro", return_value="Generated intro copy.") as mock_generate:
+             patch.object(intro, "generate_intro", return_value=self._valid_intro()) as mock_generate:
 
             result = intro._process_single_row(
                 row={"url": "https://example.com/services/seo-audit", "keyword": "SEO audit services", "h1": "SEO Audit Services"},
@@ -405,6 +408,72 @@ class IntroSerpContextTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         mock_aio.assert_not_called()
         self.assertEqual(mock_generate.call_args.kwargs["ai_overview_summary"], "")
+
+    def test_short_intro_is_flagged_for_review_without_dropping_copy(self):
+        short_intro = "Short intro copy with too few words for the requested target."
+        with patch.object(intro, "get_ranked_keywords_for_page", return_value=[]), \
+             patch.object(intro, "get_keyword_overview", return_value={}), \
+             patch.object(intro, "get_keyword_difficulty", return_value={}), \
+             patch.object(intro, "select_intro_keywords", return_value=self._selection()), \
+             patch.object(intro, "get_ai_overview_summary", return_value=""), \
+             patch.object(intro, "generate_intro", return_value=short_intro):
+
+            result = intro._process_single_row(
+                row={"url": "https://example.com/services/seo-audit", "keyword": "SEO audit services", "h1": "SEO Audit Services"},
+                settings={**self._settings(include_ai_overview_context=False), "word_count": 100},
+                gsc_client=None,
+                branded_terms=[],
+                used_primaries=set(),
+                user_id="user-1",
+            )
+
+        self.assertEqual(result["intro_copy"], short_intro)
+        self.assertEqual(result["status"], "review")
+        self.assertIsNone(result["error"])
+        self.assertIn("Intro is very short.", result["qa_flags"])
+
+    def test_paragraph_count_mismatch_is_flagged_for_review(self):
+        one_paragraph = " ".join(["word"] * 95)
+        with patch.object(intro, "get_ranked_keywords_for_page", return_value=[]), \
+             patch.object(intro, "get_keyword_overview", return_value={}), \
+             patch.object(intro, "get_keyword_difficulty", return_value={}), \
+             patch.object(intro, "select_intro_keywords", return_value=self._selection()), \
+             patch.object(intro, "get_ai_overview_summary", return_value=""), \
+             patch.object(intro, "generate_intro", return_value=one_paragraph):
+
+            result = intro._process_single_row(
+                row={"url": "https://example.com/services/seo-audit", "keyword": "SEO audit services", "h1": "SEO Audit Services"},
+                settings={**self._settings(include_ai_overview_context=False), "word_count": 100, "paragraph_count": 2},
+                gsc_client=None,
+                branded_terms=[],
+                used_primaries=set(),
+                user_id="user-1",
+            )
+
+        self.assertEqual(result["status"], "review")
+        self.assertIsNone(result["error"])
+        self.assertIn("Paragraph count mismatch: expected 2, got 1.", result["qa_flags"])
+
+    def test_generic_intro_opener_is_flagged_for_review(self):
+        generic_intro = "Looking for SEO audit services that make sense for your business? " + " ".join(["word"] * 70)
+        with patch.object(intro, "get_ranked_keywords_for_page", return_value=[]), \
+             patch.object(intro, "get_keyword_overview", return_value={}), \
+             patch.object(intro, "get_keyword_difficulty", return_value={}), \
+             patch.object(intro, "select_intro_keywords", return_value=self._selection()), \
+             patch.object(intro, "get_ai_overview_summary", return_value=""), \
+             patch.object(intro, "generate_intro", return_value=generic_intro):
+
+            result = intro._process_single_row(
+                row={"url": "https://example.com/services/seo-audit", "keyword": "SEO audit services", "h1": "SEO Audit Services"},
+                settings={**self._settings(include_ai_overview_context=False), "word_count": 80},
+                gsc_client=None,
+                branded_terms=[],
+                used_primaries=set(),
+                user_id="user-1",
+            )
+
+        self.assertEqual(result["status"], "review")
+        self.assertIn('Generic opener found: "Looking for".', result["qa_flags"])
 
 
 class RankedKeywordUrlVariantTests(unittest.TestCase):
