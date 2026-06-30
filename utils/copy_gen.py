@@ -117,6 +117,18 @@ DEFAULT_MODELS = {
 }
 
 
+def _extract_anthropic_text(content) -> str:
+    """Return concatenated text blocks from an Anthropic Messages response."""
+    text = "\n".join(
+        str(block.text)
+        for block in (content or [])
+        if getattr(block, "type", "text") == "text" and getattr(block, "text", None)
+    ).strip()
+    if not text:
+        raise RuntimeError("AI provider returned an empty text response")
+    return text
+
+
 def _call_claude(api_key: str, prompt: str, max_tokens: int = 1000, model: str = None) -> str:
     import anthropic
     client = anthropic.Anthropic(api_key=api_key)
@@ -125,7 +137,7 @@ def _call_claude(api_key: str, prompt: str, max_tokens: int = 1000, model: str =
         max_tokens=max_tokens,
         messages=[{"role": "user", "content": prompt}],
     )
-    return msg.content[0].text.strip()
+    return _extract_anthropic_text(msg.content)
 
 
 def _call_openai(api_key: str, prompt: str, max_tokens: int = 1000, model: str = None) -> str:
