@@ -129,12 +129,19 @@ def _extract_anthropic_text(content) -> str:
     return text
 
 
+def _anthropic_request_options(model: str, max_tokens: int) -> dict:
+    options = {"model": model, "max_tokens": max_tokens}
+    if (model or "").startswith("claude-sonnet-5"):
+        options["thinking"] = {"type": "disabled"}
+    return options
+
+
 def _call_claude(api_key: str, prompt: str, max_tokens: int = 1000, model: str = None) -> str:
     import anthropic
     client = anthropic.Anthropic(api_key=api_key)
+    resolved_model = model or DEFAULT_MODELS["Claude"]
     msg = client.messages.create(
-        model=model or DEFAULT_MODELS["Claude"],
-        max_tokens=max_tokens,
+        **_anthropic_request_options(resolved_model, max_tokens),
         messages=[{"role": "user", "content": prompt}],
     )
     return _extract_anthropic_text(msg.content)
@@ -393,6 +400,6 @@ def generate_intro(
         ai_overview_summary=ai_overview_summary,
     )
 
-    max_tokens = max(512, word_count * 8)
+    max_tokens = 16384
     raw = fn(api_key, prompt, max_tokens=max_tokens, model=resolved_model)
     return sanitise(raw, brand_name)

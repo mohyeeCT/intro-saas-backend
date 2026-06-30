@@ -106,6 +106,60 @@ class IntroOpenAIModelTests(unittest.TestCase):
         self.assertEqual(captured["max_completion_tokens"], 123)
         self.assertNotIn("max_tokens", captured)
 
+    def test_sonnet_5_request_disables_thinking(self):
+        from utils import copy_gen
+
+        options = copy_gen._anthropic_request_options("claude-sonnet-5", 1000)
+
+        self.assertEqual(options["thinking"], {"type": "disabled"})
+        self.assertEqual(options["max_tokens"], 1000)
+
+    def test_non_sonnet_5_request_leaves_thinking_unset(self):
+        from utils import copy_gen
+
+        options = copy_gen._anthropic_request_options("claude-sonnet-4-6", 1000)
+
+        self.assertNotIn("thinking", options)
+
+    def test_generate_intro_uses_expanded_token_limit(self):
+        from utils import copy_gen
+
+        captured = {}
+        original_provider = copy_gen._PROVIDER_FN.get("Test")
+
+        def fake_provider(api_key, prompt, max_tokens=1000, model=None):
+            captured["max_tokens"] = max_tokens
+            captured["model"] = model
+            return "Generated intro copy."
+
+        copy_gen._PROVIDER_FN["Test"] = fake_provider
+        try:
+            result = copy_gen.generate_intro(
+                provider="Test",
+                api_key="key",
+                primary_keyword="SEO services",
+                supporting_keywords=[],
+                page_template="service_lp",
+                business_type="service",
+                brand_name="Example",
+                include_brand=False,
+                h1="SEO Services",
+                word_count=80,
+                paragraph_count=1,
+                page_context="",
+                forbidden_phrases="",
+                model="test-intro-model",
+            )
+        finally:
+            if original_provider is None:
+                copy_gen._PROVIDER_FN.pop("Test", None)
+            else:
+                copy_gen._PROVIDER_FN["Test"] = original_provider
+
+        self.assertEqual(result, "Generated intro copy.")
+        self.assertEqual(captured["max_tokens"], 16384)
+        self.assertEqual(captured["model"], "test-intro-model")
+
 
 class IntroPromptGuardrailTests(unittest.TestCase):
     def test_prompt_includes_unsupported_claim_guardrails(self):
