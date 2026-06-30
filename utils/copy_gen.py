@@ -130,10 +130,7 @@ def _extract_anthropic_text(content) -> str:
 
 
 def _anthropic_request_options(model: str, max_tokens: int) -> dict:
-    options = {"model": model, "max_tokens": max_tokens}
-    if (model or "").startswith("claude-sonnet-5"):
-        options["thinking"] = {"type": "disabled"}
-    return options
+    return {"model": model, "max_tokens": max_tokens}
 
 
 def _call_claude(api_key: str, prompt: str, max_tokens: int = 1000, model: str = None) -> str:

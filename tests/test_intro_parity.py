@@ -106,13 +106,13 @@ class IntroOpenAIModelTests(unittest.TestCase):
         self.assertEqual(captured["max_completion_tokens"], 123)
         self.assertNotIn("max_tokens", captured)
 
-    def test_sonnet_5_request_disables_thinking(self):
+    def test_sonnet_5_request_leaves_thinking_unset(self):
         from utils import copy_gen
 
         options = copy_gen._anthropic_request_options("claude-sonnet-5", 1000)
 
-        self.assertEqual(options["thinking"], {"type": "disabled"})
         self.assertEqual(options["max_tokens"], 1000)
+        self.assertNotIn("thinking", options)
 
     def test_non_sonnet_5_request_leaves_thinking_unset(self):
         from utils import copy_gen
