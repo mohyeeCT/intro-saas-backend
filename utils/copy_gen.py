@@ -109,7 +109,7 @@ SCRAPED CONTEXT GUARDRAIL:
 
 
 DEFAULT_MODELS = {
-    "Claude": "claude-sonnet-4-6",
+    "Claude": "claude-sonnet-5",
     "OpenAI": "gpt-5.5",
     "Gemini (free)": "gemini-2.0-flash",
     "Mistral (free tier)": "mistral-small-latest",
