@@ -236,6 +236,7 @@ def select_intro_keywords(
             seen[kw] = {"keyword": r["query"], "score": sc, "volume": vol, "difficulty": diff, "source": "dfs_ranked"}
 
     # 3. Manual seeds -- add to pool with DFS volume if available, else base score 0.01
+    manual_candidates = []
     for seed in manual_seeds:
         kw = seed.lower().strip()
         if not kw or is_branded(kw):
@@ -243,23 +244,28 @@ def select_intro_keywords(
         vol = dfs_volume_data.get(kw, {}).get("volume", 0) or 0
         diff = dfs_diff_data.get(kw, {}).get("difficulty", 50) or 50
         sc = _score_candidate(kw, 0, 0, 50, vol, diff, h1) if vol >= min_volume else 0.01
+        manual_candidate = {"keyword": seed, "score": sc, "volume": vol, "difficulty": diff, "source": "manual"}
+        manual_candidates.append(manual_candidate)
         if kw not in seen:
-            seen[kw] = {"keyword": seed, "score": sc, "volume": vol, "difficulty": diff, "source": "manual"}
+            seen[kw] = manual_candidate
 
     if not seen:
         return {"primary": None, "supporting": [], "cluster_source": "none", "runner_up": None}
 
     ranked = sorted(seen.values(), key=lambda x: x["score"], reverse=True)
 
-    # Deduplicate primary across job run
-    primary = None
+    # Manual row keywords are explicit user intent, so they win primary selection
+    # even when GSC/DFS candidates score higher or the keyword was used before.
+    primary = manual_candidates[0] if manual_candidates else None
     runner_up = None
-    for candidate in ranked:
-        if candidate["keyword"].lower() not in used_primaries:
-            primary = candidate
-            break
     if primary is None:
-        primary = ranked[0]  # all used -- fall back to top
+        # Deduplicate primary across job run
+        for candidate in ranked:
+            if candidate["keyword"].lower() not in used_primaries:
+                primary = candidate
+                break
+        if primary is None:
+            primary = ranked[0]  # all used -- fall back to top
 
     # Runner-up: next unused after primary
     for candidate in ranked:
@@ -275,7 +281,9 @@ def select_intro_keywords(
 
     # Determine cluster source
     sources = {c["source"] for c in [primary] + supporting}
-    if "gsc" in sources and "dfs_ranked" in sources:
+    if primary.get("source") == "manual":
+        cluster_source = "manual"
+    elif "gsc" in sources and "dfs_ranked" in sources:
         cluster_source = "gsc+dfs"
     elif "gsc" in sources:
         cluster_source = "gsc"
@@ -637,7 +645,9 @@ def _process_single_row(
         has_gsc = bool(gsc_queries)
         has_dfs = bool(dfs_ranked)
         has_manual = bool(manual_seeds)
-        if cluster_source == "h1_fallback":
+        if cluster_source == "manual":
+            keyword_source_label = "manual"
+        elif cluster_source == "h1_fallback":
             keyword_source_label = "h1_fallback"
         elif has_gsc and has_dfs:
             keyword_source_label = "gsc+dfs"

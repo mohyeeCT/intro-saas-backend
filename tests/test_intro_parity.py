@@ -67,6 +67,141 @@ from utils.copy_gen import DEFAULT_MODELS
 from utils.copy_gen import _build_prompt
 
 
+class IntroKeywordSelectionTests(unittest.TestCase):
+    def _select(self, **overrides):
+        defaults = {
+            "gsc_queries": [],
+            "dfs_ranked": [],
+            "manual_seeds": [],
+            "dfs_volume_data": {},
+            "dfs_diff_data": {},
+            "branded_terms": [],
+            "min_volume": 10,
+            "h1": "",
+            "max_supporting": 3,
+            "used_primaries": set(),
+            "restricted_industry": False,
+        }
+        defaults.update(overrides)
+        return intro.select_intro_keywords(**defaults)
+
+    def test_manual_seed_becomes_primary_over_stronger_gsc_candidate(self):
+        selection = self._select(
+            gsc_queries=[{
+                "query": "gsc selected keyword",
+                "impressions": 2000,
+                "clicks": 120,
+                "ctr": 0.06,
+                "position": 2.5,
+            }],
+            manual_seeds=["manual priority keyword"],
+            dfs_volume_data={"gsc selected keyword": {"volume": 4000}},
+            dfs_diff_data={"gsc selected keyword": {"difficulty": 20}},
+        )
+
+        self.assertEqual(selection["primary"]["keyword"], "manual priority keyword")
+        self.assertEqual(selection["cluster_source"], "manual")
+        self.assertEqual(selection["runner_up"]["keyword"], "gsc selected keyword")
+
+    def test_manual_seed_becomes_primary_over_stronger_dfs_ranked_candidate(self):
+        selection = self._select(
+            dfs_ranked=[{
+                "query": "dfs ranked keyword",
+                "impressions": 3000,
+                "clicks": 180,
+                "ctr": 0.06,
+                "position": 3.0,
+                "volume": 5000,
+                "difficulty": 25,
+            }],
+            manual_seeds=["manual priority keyword"],
+        )
+
+        self.assertEqual(selection["primary"]["keyword"], "manual priority keyword")
+        self.assertEqual(selection["cluster_source"], "manual")
+        self.assertEqual(selection["runner_up"]["keyword"], "dfs ranked keyword")
+
+    def test_first_valid_manual_seed_wins_and_remaining_candidates_support(self):
+        selection = self._select(
+            gsc_queries=[{
+                "query": "gsc support keyword",
+                "impressions": 1200,
+                "clicks": 60,
+                "ctr": 0.05,
+                "position": 4.0,
+            }],
+            manual_seeds=["Brand Name manual", "manual primary", "manual support"],
+            dfs_volume_data={
+                "gsc support keyword": {"volume": 2000},
+                "manual support": {"volume": 50},
+            },
+            dfs_diff_data={
+                "gsc support keyword": {"difficulty": 30},
+                "manual support": {"difficulty": 20},
+            },
+            branded_terms=["Brand Name"],
+        )
+
+        self.assertEqual(selection["primary"]["keyword"], "manual primary")
+        self.assertEqual(selection["cluster_source"], "manual")
+        supporting = [candidate["keyword"] for candidate in selection["supporting"]]
+        self.assertIn("manual support", supporting)
+        self.assertIn("gsc support keyword", supporting)
+
+    def test_manual_primary_result_keeps_manual_keyword_source_label(self):
+        settings = {
+            "provider": "Claude",
+            "api_key": "api-key",
+            "dfs_login": "dfs-login",
+            "dfs_password": "dfs-password",
+            "location_code": 2840,
+            "min_volume": 10,
+            "scrape_pages": False,
+            "include_ai_overview_context": False,
+            "page_template": "service_lp",
+            "business_type": "service",
+            "brand_name": "Example",
+            "include_brand": False,
+            "word_count": 80,
+            "paragraph_count": 1,
+        }
+        with patch.object(intro, "get_top_queries_for_url", return_value=[{
+            "query": "gsc selected keyword",
+            "impressions": 2000,
+            "clicks": 120,
+            "ctr": 0.06,
+            "position": 2.5,
+        }]), patch.object(intro, "get_ranked_keywords_for_page", return_value=[{
+            "query": "dfs ranked keyword",
+            "impressions": 3000,
+            "clicks": 180,
+            "ctr": 0.06,
+            "position": 3.0,
+            "volume": 5000,
+            "difficulty": 25,
+        }]), patch.object(intro, "get_keyword_overview", return_value={
+            "gsc selected keyword": {"volume": 4000},
+        }), patch.object(intro, "get_keyword_difficulty", return_value={
+            "gsc selected keyword": {"difficulty": 20},
+        }), patch.object(intro, "generate_intro", return_value=" ".join(["word"] * 80)):
+            result = intro._process_single_row(
+                row={
+                    "url": "https://example.com/services/seo-audit",
+                    "keyword": "manual priority keyword",
+                    "h1": "SEO Audit Services",
+                },
+                settings={**settings, "use_gsc": True, "site_url": "https://example.com/"},
+                gsc_client=object(),
+                branded_terms=[],
+                used_primaries=set(),
+                user_id="user-1",
+            )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["primary_keyword"], "manual priority keyword")
+        self.assertEqual(result["keyword_source"], "manual")
+
+
 class IntroOpenAIModelTests(unittest.TestCase):
     def test_openai_default_uses_current_gpt_5_model(self):
         self.assertEqual(DEFAULT_MODELS["OpenAI"], "gpt-5.5")
