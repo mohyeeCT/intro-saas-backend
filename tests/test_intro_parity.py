@@ -121,7 +121,16 @@ class IntroKeywordSelectionTests(unittest.TestCase):
         self.assertEqual(selection["cluster_source"], "manual")
         self.assertEqual(selection["runner_up"]["keyword"], "dfs ranked keyword")
 
-    def test_first_valid_manual_seed_wins_and_remaining_candidates_support(self):
+    def test_brand_word_does_not_block_manual_keyword_word_prefix(self):
+        selection = self._select(
+            manual_seeds=["south carolina car accident lawyer"],
+            branded_terms=["DSB", "Law", "Firm"],
+        )
+
+        self.assertEqual(selection["primary"]["keyword"], "south carolina car accident lawyer")
+        self.assertEqual(selection["cluster_source"], "manual")
+
+    def test_manual_seed_bypasses_brand_filter_and_remaining_candidates_support(self):
         selection = self._select(
             gsc_queries=[{
                 "query": "gsc support keyword",
@@ -142,9 +151,10 @@ class IntroKeywordSelectionTests(unittest.TestCase):
             branded_terms=["Brand Name"],
         )
 
-        self.assertEqual(selection["primary"]["keyword"], "manual primary")
+        self.assertEqual(selection["primary"]["keyword"], "Brand Name manual")
         self.assertEqual(selection["cluster_source"], "manual")
         supporting = [candidate["keyword"] for candidate in selection["supporting"]]
+        self.assertIn("manual primary", supporting)
         self.assertIn("manual support", supporting)
         self.assertIn("gsc support keyword", supporting)
 

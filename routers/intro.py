@@ -201,7 +201,16 @@ def select_intro_keywords(
 
     def is_branded(kw: str) -> bool:
         kw_lower = kw.lower()
-        return any(b.lower() in kw_lower for b in branded_terms if b)
+        for brand in branded_terms:
+            term = (brand or "").strip().lower()
+            if not term:
+                continue
+            pattern = r"(?<![a-z0-9])" + r"\s+".join(
+                re.escape(part) for part in term.split()
+            ) + r"(?![a-z0-9])"
+            if re.search(pattern, kw_lower):
+                return True
+        return False
 
     seen = {}  # dedup by keyword (lowercase)
 
@@ -239,7 +248,7 @@ def select_intro_keywords(
     manual_candidates = []
     for seed in manual_seeds:
         kw = seed.lower().strip()
-        if not kw or is_branded(kw):
+        if not kw:
             continue
         vol = dfs_volume_data.get(kw, {}).get("volume", 0) or 0
         diff = dfs_diff_data.get(kw, {}).get("difficulty", 50) or 50
