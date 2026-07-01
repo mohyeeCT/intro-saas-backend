@@ -63,6 +63,20 @@ _TEMPLATE_RULES = {
         "Supporting keywords woven naturally into subsequent sentences. "
         "Avoid generic opener phrases."
     ),
+    "service": (
+        "This is a service page. The intro should establish what the service "
+        "does, who it is for, and why it matters. Represent the primary keyword naturally "
+        "in the opening paragraph. "
+        "Supporting keywords woven naturally into subsequent sentences. "
+        "Avoid generic opener phrases."
+    ),
+    "landing_page": (
+        "This is a landing page. It may be a homepage, campaign page, lead capture page, "
+        "or another conversion-focused page, so do not assume it is a service page unless "
+        "the context clearly says so. Start with the topic, offer, outcome, or value of "
+        "the page. Represent the primary keyword naturally in the opening paragraph. "
+        "Supporting keywords woven naturally into subsequent sentences. Avoid generic opener phrases."
+    ),
     "location": (
         "This is a location page. The intro should reference the location and the service "
         "offered there. Represent the primary keyword, likely a location-modified phrase, "

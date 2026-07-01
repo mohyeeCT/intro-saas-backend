@@ -15,6 +15,7 @@ from utils.dfs import get_keyword_overview, get_keyword_difficulty, get_ai_overv
 from utils.gsc import GscOAuthConfigError, get_gsc_client, get_top_queries_for_url
 from utils.niches import get_niche_context
 from utils.scraper import scrape_page_context, is_ecommerce_collection_page
+from utils.page_types import normalize_page_type
 
 router = APIRouter()
 
@@ -430,6 +431,7 @@ def _process_single_row(
     h1 = "" if h1_raw.lower() in ("none", "None") else h1_raw
     manual_keyword_raw = (row.get("keyword") or "").strip()
     manual_seeds = [k.strip() for k in manual_keyword_raw.split(",") if k.strip()]
+    page_template = normalize_page_type(row.get("page_type") or settings.get("page_template", "service"), default="service")
 
     # 0. Validate URL
     if not url or not url.startswith("http"):
@@ -442,7 +444,7 @@ def _process_single_row(
     if settings.get("scrape_pages") and settings.get("jina_api_key"):
         scrape_mode = (
             "ecommerce_collection"
-            if is_ecommerce_collection_page(settings.get("business_type"), row.get("page_type"))
+            if is_ecommerce_collection_page(settings.get("business_type"), page_template)
             else "default"
         )
         scrape_result = scrape_page_context(settings["jina_api_key"], url, mode=scrape_mode)
@@ -656,7 +658,7 @@ def _process_single_row(
             api_key=settings["api_key"],
             primary_keyword=primary_keyword,
             supporting_keywords=supporting_kws,
-            page_template=settings.get("page_template", "service_lp"),
+            page_template=page_template,
             business_type=settings.get("business_type", "general"),
             brand_name=settings.get("brand_name", ""),
             include_brand=settings.get("include_brand", False),
