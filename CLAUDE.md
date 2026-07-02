@@ -6,7 +6,7 @@ See `../CLAUDE.md` for full platform context, conventions, and working rules.
 
 FastAPI backend for the Intro Copy workflow.
 Deployed on Railway EU West. Default branch: **`master`** (not main).
-Current HEAD: `f701bad`. Runtime: Python 3.12.
+Current HEAD: `e1caa46`. Runtime: Python 3.12.
 
 Railway URL: `https://intro-saas-backend-production.up.railway.app`
 
@@ -49,6 +49,11 @@ Same shared set as FAQ (see faq-saas-backend CLAUDE.md) with:
 7. Apply safety guardrails (restricted industry, unsupported claims)
 8. Write result to Supabase
 
+Manual keyword rule: row-level manual keywords are explicit user input and must
+be the primary keyword choice when present. They outrank stronger GSC/DFS
+candidates and bypass brand filtering; remaining GSC/DFS/manual candidates can
+still be used as supporting keywords.
+
 ## Key Model Fields (JobSettings)
 
 ```python
@@ -67,6 +72,9 @@ max_supporting_keywords: int = 5
 ```
 
 ## Known Gotchas
+
+- Manual keywords are intentionally primary. Do not reintroduce scoring or
+  brand-validation behavior that demotes or removes a manual row keyword.
 
 - Default branch is `master` — always specify `git checkout master` and
   `git push origin master`. Do not use `main`.
