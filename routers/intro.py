@@ -166,7 +166,7 @@ def _score_candidate(
                 clicks_boost = max(math.log1p(clicks), 1.0)
                 return round(math.log1p(impressions) * clicks_boost * ctr_boost * pos_score * rel_score, 4)
             else:
-                return round(math.log1p(impressions) * ctr_boost * 0.1, 4)
+                return round(math.log1p(impressions) * ctr_boost * pos_score * rel_score * 0.1, 4)
         return 0.0
 
     if restricted_industry:

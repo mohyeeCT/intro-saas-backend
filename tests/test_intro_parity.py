@@ -85,6 +85,30 @@ class IntroKeywordSelectionTests(unittest.TestCase):
         defaults.update(overrides)
         return intro.select_intro_keywords(**defaults)
 
+    def test_standard_zero_volume_score_uses_position_and_relevance(self):
+        strong = intro._score_candidate(
+            "emergency plumbing services",
+            impressions=40,
+            ctr=0.02,
+            position=2.0,
+            volume=0,
+            difficulty=50,
+            h1="Emergency Plumbing Services",
+            restricted_industry=False,
+        )
+        weak = intro._score_candidate(
+            "random celebrity quote",
+            impressions=500,
+            ctr=0.02,
+            position=45.0,
+            volume=0,
+            difficulty=50,
+            h1="Emergency Plumbing Services",
+            restricted_industry=False,
+        )
+
+        self.assertGreater(strong, weak)
+
     def test_manual_seed_becomes_primary_over_stronger_gsc_candidate(self):
         selection = self._select(
             gsc_queries=[{
