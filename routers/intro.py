@@ -988,16 +988,19 @@ def run_intro_job(
 
     # Fetch brand profile by ID if provided
     brand_profile_id = request.settings.model_dump().get("brand_profile_id")
+    client_profile_id = None
     if brand_profile_id:
         try:
             bp_res = sb.table("brand_profiles").select("data").eq("id", brand_profile_id).eq("user_id", user.id).execute()
             if bp_res.data:
                 brand_profile = bp_res.data[0].get("data") or {}
+                client_profile_id = brand_profile_id
         except Exception:
             pass
 
     job_data = {
         "user_id": user.id,
+        "client_profile_id": client_profile_id,
         "status": "running",
         "name": request.name,
         "tool": "intro",
