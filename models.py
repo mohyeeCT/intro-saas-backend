@@ -1,5 +1,5 @@
 from pydantic import BaseModel, field_validator
-from typing import Optional
+from typing import Literal, Optional
 
 WORD_COUNT_MIN, WORD_COUNT_MAX = 60, 300
 PARAGRAPH_COUNT_MIN, PARAGRAPH_COUNT_MAX = 1, 5
@@ -51,6 +51,8 @@ class JobSettings(BaseModel):
     # Scraping
     jina_api_key: str = ""
     scrape_pages: bool = False
+    scrape_provider: Literal["jina", "firecrawl"] = "jina"
+    firecrawl_fallback: bool = False
 
     # GSC
     use_gsc: bool = True
