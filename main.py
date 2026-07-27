@@ -21,7 +21,7 @@ def _is_allowed_origin(origin: str | None) -> bool:
 
 app = FastAPI(
     title="Page Intro Copy Production API",
-    description="Generate SEO-optimised intro paragraphs with AI, GSC, and DataForSEO",
+    description="Generate SEO-optimized intro paragraphs with AI, GSC, and DataForSEO",
     version="1.0.0",
 )
 

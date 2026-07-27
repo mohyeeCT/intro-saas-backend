@@ -331,6 +331,64 @@ class IntroOpenAIModelTests(unittest.TestCase):
 
 
 class IntroPromptGuardrailTests(unittest.TestCase):
+    def test_prompt_requires_us_english(self):
+        prompt = _build_prompt(
+            primary_keyword="running shoes",
+            supporting_keywords=["trail running shoes"],
+            page_template="category",
+            business_type="ecommerce",
+            brand_name="Example",
+            include_brand=False,
+            h1="Running Shoes",
+            word_count=80,
+            paragraph_count=1,
+            page_context="A UK source uses colour and prioritise.",
+            forbidden_phrases="",
+            brand_profile={},
+        )
+
+        self.assertIn("U.S. ENGLISH REQUIREMENT", prompt)
+        self.assertIn("Do not imitate British spelling", prompt)
+        self.assertIn("Preserve official brand and product names", prompt)
+
+    def test_qa_flags_non_us_spelling_but_protects_official_names(self):
+        text = (
+            "The organisation prioritises clear guidance for teams comparing "
+            "service options, implementation needs, practical constraints, and "
+            "next steps. Each recommendation stays focused on useful decisions "
+            "without filler, unsupported claims, or unnecessary repetition."
+        )
+        flags = intro._intro_qa_flags(text, 1, [], [])
+        self.assertTrue(
+            any(flag.startswith("Non-U.S. English spelling detected:") for flag in flags)
+        )
+
+        protected_text = (
+            "Colour Centre is the official brand name for a service that helps "
+            "teams compare practical options, implementation needs, and next "
+            "steps. The guidance stays clear, useful, and focused on supported "
+            "details without unnecessary filler or repetition."
+        )
+        protected_flags = intro._intro_qa_flags(
+            protected_text,
+            1,
+            [],
+            ["Colour Centre"],
+        )
+        self.assertFalse(
+            any(flag.startswith("Non-U.S. English spelling detected:") for flag in protected_flags)
+        )
+
+        valid_us_flags = intro._intro_qa_flags(
+            "Orders are fulfilled promptly by a fulfilling support team.",
+            1,
+            [],
+            [],
+        )
+        self.assertFalse(
+            any(flag.startswith("Non-U.S. English spelling detected:") for flag in valid_us_flags)
+        )
+
     def test_prompt_includes_unsupported_claim_guardrails(self):
         prompt = _build_prompt(
             primary_keyword="running shoes",

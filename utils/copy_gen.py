@@ -1,6 +1,8 @@
 import re
 import json
 
+from utils.language import US_ENGLISH_OUTPUT_RULE
+
 
 # ── Sanitiser ─────────────────────────────────────────────────────────────────
 
@@ -19,7 +21,7 @@ def sanitise(text: str, brand_name: str = "") -> str:
 
 _BIZ_CONTEXT = {
     "b2b": (
-        "B2B audience. Prioritise clarity on process, capability, and ROI. "
+        "B2B audience. Prioritize clarity on process, capability, and ROI. "
         "No consumer CTAs. Tone is professional and direct."
     ),
     "b2c": (
@@ -32,7 +34,7 @@ _BIZ_CONTEXT = {
     ),
     "service": (
         "Service page. Build trust through clarity on what is offered and for whom. "
-        "Emphasise expertise and outcomes."
+        "Emphasize expertise and outcomes."
     ),
     "local": (
         "Local business page. Reference service area or local context where it adds "
@@ -334,6 +336,8 @@ BUSINESS TYPE:
 {forbidden_line}
 
 {brand_profile_block}
+
+{US_ENGLISH_OUTPUT_RULE}
 
 LENGTH AND FORMAT:
 {para_instruction}

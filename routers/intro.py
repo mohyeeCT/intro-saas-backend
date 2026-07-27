@@ -13,6 +13,7 @@ from models import RunJobRequest, JobSettings, JobRow
 from utils.copy_gen import generate_intro
 from utils.dfs import get_keyword_overview, get_keyword_difficulty, get_ai_overview_summary, _auth_header, _raise_api_error, DFS_BASE
 from utils.gsc import GscOAuthConfigError, get_gsc_client, get_top_queries_for_url
+from utils.language import find_non_us_english_spellings
 from utils.niches import get_niche_context
 from utils.scraper import is_ecommerce_collection_page, scrape_page_context
 from utils.page_types import normalize_page_type
@@ -447,7 +448,12 @@ def _forbidden_phrases(settings: dict, brand_profile: dict | None = None) -> lis
     return list(dict.fromkeys(phrases))
 
 
-def _intro_qa_flags(intro_copy: str, target_paragraphs: int, forbidden_phrases: list) -> list:
+def _intro_qa_flags(
+    intro_copy: str,
+    target_paragraphs: int,
+    forbidden_phrases: list,
+    protected_phrases: list[str] | None = None,
+) -> list:
     flags = []
     text = intro_copy or ""
     if not text.strip():
@@ -473,6 +479,17 @@ def _intro_qa_flags(intro_copy: str, target_paragraphs: int, forbidden_phrases: 
         if normalised_first.startswith(_normalise_phrase(opener)):
             flags.append(f'Generic opener found: "{opener}".')
             break
+
+    non_us_spellings = find_non_us_english_spellings(
+        text,
+        protected_phrases or [],
+    )
+    if non_us_spellings:
+        flags.append(
+            "Non-U.S. English spelling detected: "
+            + ", ".join(non_us_spellings[:5])
+            + ". Use U.S. English."
+        )
 
     return flags
 
@@ -773,6 +790,7 @@ def _process_single_row(
         intro_copy,
         settings.get("paragraph_count", 1),
         _forbidden_phrases(settings, brand_profile),
+        [settings.get("brand_name", ""), h1],
     )
     row_status = "review" if qa_flags else "ok"
     if qa_flags:
